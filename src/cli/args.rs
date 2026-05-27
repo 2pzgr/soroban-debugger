@@ -73,6 +73,16 @@ pub enum SnapshotCompression {
     Zstd,
 }
 
+/// Minimum severity level for security findings.
+/// Used with the `analyze` command to filter results by severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum MinSeverity {
+    #[default]
+    Low,
+    Medium,
+    High,
+}
+
 impl Verbosity {
     /// Convert verbosity to log level string for RUST_LOG
     pub fn to_log_level(self) -> String {
@@ -767,7 +777,7 @@ pub struct OptimizeArgs {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, OutputFormat, SymbolicProfile};
+    use super::{Cli, Commands, OutputFormat, SymbolicProfile, MinSeverity};
     use clap::Parser;
 
     #[test]
@@ -964,6 +974,95 @@ mod tests {
         assert!(args.source_map_diagnostics);
         assert_eq!(args.source_map_limit, 5);
         assert_eq!(args.format, OutputFormat::Json);
+    }
+
+    /// Test that analyze command accepts min_severity with low value (issue #1273)
+    #[test]
+    fn analyze_accepts_min_severity_low() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "analyze",
+            "--contract",
+            "contract.wasm",
+            "--min-severity",
+            "low",
+        ]);
+
+        let Commands::Analyze(args) = cli.command.expect("analyze command expected") else {
+            panic!("analyze command expected");
+        };
+
+        assert_eq!(args.min_severity, MinSeverity::Low);
+    }
+
+    /// Test that analyze command accepts min_severity with medium value (issue #1273)
+    #[test]
+    fn analyze_accepts_min_severity_medium() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "analyze",
+            "--contract",
+            "contract.wasm",
+            "--min-severity",
+            "medium",
+        ]);
+
+        let Commands::Analyze(args) = cli.command.expect("analyze command expected") else {
+            panic!("analyze command expected");
+        };
+
+        assert_eq!(args.min_severity, MinSeverity::Medium);
+    }
+
+    /// Test that analyze command accepts min_severity with high value (issue #1273)
+    #[test]
+    fn analyze_accepts_min_severity_high() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "analyze",
+            "--contract",
+            "contract.wasm",
+            "--min-severity",
+            "high",
+        ]);
+
+        let Commands::Analyze(args) = cli.command.expect("analyze command expected") else {
+            panic!("analyze command expected");
+        };
+
+        assert_eq!(args.min_severity, MinSeverity::High);
+    }
+
+    /// Test that analyze command defaults to low severity (issue #1273)
+    #[test]
+    fn analyze_defaults_to_low_severity() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "analyze",
+            "--contract",
+            "contract.wasm",
+        ]);
+
+        let Commands::Analyze(args) = cli.command.expect("analyze command expected") else {
+            panic!("analyze command expected");
+        };
+
+        assert_eq!(args.min_severity, MinSeverity::Low);
+    }
+
+    /// Test that analyze command rejects invalid min_severity value (issue #1273)
+    #[test]
+    fn analyze_rejects_invalid_min_severity() {
+        let result = Cli::try_parse_from([
+            "soroban-debug",
+            "analyze",
+            "--contract",
+            "contract.wasm",
+            "--min-severity",
+            "invalid",
+        ]);
+
+        assert!(result.is_err(), "Expected error for invalid min-severity");
     }
 }
 
@@ -1378,8 +1477,8 @@ pub struct AnalyzeArgs {
     pub disable_rule: Vec<String>,
 
     /// Minimum severity to include: low, medium, or high.
-    #[arg(long, default_value = "low", value_name = "SEVERITY")]
-    pub min_severity: String,
+    #[arg(long, value_enum, default_value_t = MinSeverity::Low)]
+    pub min_severity: MinSeverity,
 }
 
 #[derive(Parser)]

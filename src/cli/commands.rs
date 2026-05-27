@@ -201,17 +201,96 @@ fn symbolic_config_from_args(args: &SymbolicArgs) -> Result<SymbolicConfig> {
     Ok(config)
 }
 
-fn parse_min_severity(value: &str) -> Result<crate::analyzer::security::Severity> {
-    match value.to_ascii_lowercase().as_str() {
-        "low" => Ok(crate::analyzer::security::Severity::Low),
-        "medium" | "med" => Ok(crate::analyzer::security::Severity::Medium),
-        "high" => Ok(crate::analyzer::security::Severity::High),
-        other => Err(DebuggerError::InvalidArguments(format!(
-            "Unsupported --min-severity '{}'. Use low, medium, or high.",
-            other
-        ))
-        .into()),
+/// Convert MinSeverity enum to analyzer Severity enum.
+fn convert_min_severity(value: crate::cli::args::MinSeverity) -> crate::analyzer::security::Severity {
+    match value {
+        crate::cli::args::MinSeverity::Low => crate::analyzer::security::Severity::Low,
+        crate::cli::args::MinSeverity::Medium => crate::analyzer::security::Severity::Medium,
+        crate::cli::args::MinSeverity::High => crate::analyzer::security::Severity::High,
     }
+}
+
+/// Find the closest matching rule IDs using Levenshtein distance.
+fn suggest_rule_ids(unknown: &str, known_rules: &[String], max_distance: usize) -> Vec<String> {
+    use std::cmp;
+    
+    // Calculate Levenshtein distance between two strings
+    let levenshtein = |a: &str, b: &str| {
+        let a_len = a.len();
+        let b_len = b.len();
+        let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
+        
+        for i in 0..=a_len {
+            matrix[i][0] = i;
+        }
+        for j in 0..=b_len {
+            matrix[0][j] = j;
+        }
+        
+        for (i, a_char) in a.chars().enumerate() {
+            for (j, b_char) in b.chars().enumerate() {
+                let cost = if a_char == b_char { 0 } else { 1 };
+                matrix[i + 1][j + 1] = cmp::min(
+                    cmp::min(
+                        matrix[i][j + 1] + 1,  // deletion
+                        matrix[i + 1][j] + 1,  // insertion
+                    ),
+                    matrix[i][j] + cost,       // substitution
+                );
+            }
+        }
+        matrix[a_len][b_len]
+    };
+    
+    let mut suggestions: Vec<_> = known_rules
+        .iter()
+        .map(|rule| {
+            let distance = levenshtein(&unknown.to_lowercase(), &rule.to_lowercase());
+            (distance, rule.clone())
+        })
+        .filter(|(distance, _)| *distance <= max_distance)
+        .collect();
+    
+    suggestions.sort_by_key(|(distance, _)| *distance);
+    suggestions.into_iter().map(|(_, rule)| rule).collect()
+}
+
+/// Validate rule IDs in enable_rules and disable_rules lists.
+fn validate_rule_ids(
+    enable_rules: &[String],
+    disable_rules: &[String],
+    registered_rules: &[String],
+) -> Result<()> {
+    let mut invalid_rules = Vec::new();
+    
+    // Check enable_rules
+    for rule in enable_rules {
+        if !registered_rules.contains(rule) {
+            invalid_rules.push(("enable", rule.clone()));
+        }
+    }
+    
+    // Check disable_rules
+    for rule in disable_rules {
+        if !registered_rules.contains(rule) {
+            invalid_rules.push(("disable", rule.clone()));
+        }
+    }
+    
+    if !invalid_rules.is_empty() {
+        let mut message = String::from("Invalid rule IDs provided:\n");
+        for (filter_type, rule) in &invalid_rules {
+            message.push_str(&format!("  --{}-rule '{}': not found\n", filter_type, rule));
+            let suggestions = suggest_rule_ids(rule, registered_rules, 2);
+            if !suggestions.is_empty() {
+                message.push_str(&format!("    Did you mean: {}?\n", suggestions.join(", ")));
+            }
+        }
+        message.push_str(&format!("\nAvailable rules: {}\n", registered_rules.join(", ")));
+        return Err(DebuggerError::InvalidArguments(message).into());
+    }
+    
+    Ok(())
 }
 
 fn render_security_report(output: &AnalyzeCommandOutput) -> String {
@@ -2584,10 +2663,20 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
             analyzer = analyzer.load_suppressions_from_file(&supp_path)?;
         }
     }
+    // Get registered rule IDs for validation
+    let registered_rules: Vec<String> = analyzer
+        .get_rules()
+        .iter()
+        .map(|rule| rule.id().to_string())
+        .collect();
+    
+    // Validate rule IDs
+    validate_rule_ids(&args.enable_rule, &args.disable_rule, &registered_rules)?;
+    
     let filter = crate::analyzer::security::AnalyzerFilter {
         enable_rules: args.enable_rule.clone(),
         disable_rules: args.disable_rule.clone(),
-        min_severity: parse_min_severity(&args.min_severity)?,
+        min_severity: convert_min_severity(args.min_severity),
     };
     let contract_path = args.contract.to_string_lossy().to_string();
     let report = analyzer.analyze(

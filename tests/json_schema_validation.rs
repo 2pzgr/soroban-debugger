@@ -154,3 +154,100 @@ fn schema_rejects_invalid_envelope_structure() {
         "schema should reject invalid envelope fields"
     );
 }
+
+#[test]
+fn symbolic_replay_bundle_schema_accepts_valid_bundle() {
+    let schema = compile_schema("tests/schemas/symbolic_replay_bundle.json");
+    let valid_bundle = serde_json::json!({
+        "schema_version": 1,
+        "command": "symbolic",
+        "contract": {
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "path_hint": Some("contract.wasm")
+        },
+        "invocation": {
+            "function": "test_function"
+        },
+        "config": {
+            "seed": 12345u64,
+            "max_paths": 100,
+            "max_input_combinations": 256,
+            "max_breadth": 5,
+            "max_depth": 3,
+            "timeout_secs": 30
+        },
+        "storage_seed": null,
+        "metadata": {
+            "paths_explored": 50,
+            "panics_found": 2
+        }
+    });
+
+    let result = schema.validate(&valid_bundle);
+    assert!(
+        result.is_ok(),
+        "schema should accept valid replay bundle: {}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn symbolic_replay_bundle_schema_rejects_missing_required_fields() {
+    let schema = compile_schema("tests/schemas/symbolic_replay_bundle.json");
+    let invalid_bundle = serde_json::json!({
+        "schema_version": 1,
+        "command": "symbolic"
+        // Missing required fields: contract, invocation, config
+    });
+
+    let result = schema.validate(&invalid_bundle);
+    assert!(
+        result.is_err(),
+        "schema should reject bundle with missing required fields"
+    );
+}
+
+#[test]
+fn symbolic_replay_bundle_schema_rejects_invalid_schema_version() {
+    let schema = compile_schema("tests/schemas/symbolic_replay_bundle.json");
+    let invalid_bundle = serde_json::json!({
+        "schema_version": 2,
+        "command": "symbolic",
+        "contract": {
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "invocation": {
+            "function": "test_function"
+        },
+        "config": {}
+    });
+
+    let result = schema.validate(&invalid_bundle);
+    assert!(
+        result.is_err(),
+        "schema should reject bundle with unsupported schema version"
+    );
+}
+
+#[test]
+fn symbolic_replay_bundle_schema_validates_sha256_format() {
+    let schema = compile_schema("tests/schemas/symbolic_replay_bundle.json");
+    let invalid_hash = serde_json::json!({
+        "schema_version": 1,
+        "command": "symbolic",
+        "contract": {
+            "sha256": "not-a-valid-sha256-hash"
+        },
+        "invocation": {
+            "function": "test_function"
+        },
+        "config": {}
+    });
+
+    let result = schema.validate(&invalid_hash);
+    assert!(
+        result.is_err(),
+        "schema should reject bundle with invalid SHA-256 hash format"
+    );
+}
+
