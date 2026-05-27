@@ -33,71 +33,10 @@ fn initialize_tracing(verbosity: Verbosity) {
     }
 }
 
-fn print_deprecation_warning(deprecated_flag: &str, new_flag: &str) {
-    eprintln!(
-        "{}",
-        Formatter::warning(format!(
-            " Flag '{}' is deprecated. Please use '{}' instead.",
-            deprecated_flag, new_flag
-        ))
-    );
-}
-
-fn handle_deprecations(cli: &mut Cli) {
-    match &mut cli.command {
-        Some(Commands::Run(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = Some(wasm);
-            }
-            if let Some(snapshot) = args.snapshot.take() {
-                print_deprecation_warning("--snapshot", "--network-snapshot");
-                args.network_snapshot = Some(snapshot);
-            }
-        }
-        Some(Commands::Interactive(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = wasm;
-            }
-            if let Some(snapshot) = args.snapshot.take() {
-                print_deprecation_warning("--snapshot", "--network-snapshot");
-                args.network_snapshot = Some(snapshot);
-            }
-        }
-        Some(Commands::Inspect(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = wasm;
-            }
-        }
-        Some(Commands::Optimize(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = wasm;
-            }
-            if let Some(snapshot) = args.snapshot.take() {
-                print_deprecation_warning("--snapshot", "--network-snapshot");
-                args.network_snapshot = Some(snapshot);
-            }
-        }
-        Some(Commands::Profile(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = wasm;
-            }
-        }
-        Some(Commands::Repl(args)) => {
-            if let Some(wasm) = args.wasm.take() {
-                print_deprecation_warning("--wasm", "--contract");
-                args.contract = wasm;
-            }
-            if let Some(snapshot) = args.snapshot.take() {
-                print_deprecation_warning("--snapshot", "--network-snapshot");
-                args.network_snapshot = Some(snapshot);
-            }
-        }
-        _ => {}
+fn check_deprecated_flags() {
+    let warnings = soroban_debugger::cli::args::warn_deprecated_flags(std::env::args());
+    for warning in warnings {
+        eprintln!("{}", Formatter::warning(warning));
     }
 }
 
@@ -142,7 +81,7 @@ fn main() -> miette::Result<()> {
     if should_show_banner(&cli) {
         print_banner();
     }
-    handle_deprecations(&mut cli);
+    check_deprecated_flags();
 
     let run_json_output_requested = matches!(
         cli.command.as_ref(),

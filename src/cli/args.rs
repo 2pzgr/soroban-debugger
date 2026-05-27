@@ -20,10 +20,24 @@ pub fn get_deprecation_warning(deprecated_flag: &str) -> Option<String> {
         .find(|(old, _)| *old == deprecated_flag)
         .map(|(old, new)| {
             format!(
-                "⚠️  Flag '{}' is deprecated. Please use '{}' instead.",
+                " Flag '{}' is deprecated. Please use '{}' instead.",
                 old, new
             )
         })
+}
+
+pub fn warn_deprecated_flags(args: impl Iterator<Item = String>) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut warned = std::collections::HashSet::new();
+    for arg in args {
+        let flag = arg.split('=').next().unwrap_or(&arg);
+        if let Some(warning) = get_deprecation_warning(flag) {
+            if warned.insert(flag.to_string()) {
+                warnings.push(warning);
+            }
+        }
+    }
+    warnings
 }
 
 /// Verbosity level for output control
@@ -246,13 +260,11 @@ pub struct RunArgs {
     #[arg(
         short,
         long,
+        alias = "wasm",
+        alias = "contract-path",
         required_unless_present_any = ["server", "remote"]
     )]
     pub contract: Option<PathBuf>,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to execute
     #[arg(
@@ -279,12 +291,8 @@ pub struct RunArgs {
     pub log_point: Vec<String>,
 
     /// Network snapshot file to load before execution
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Enable verbose output
     #[arg(short, long)]
@@ -505,20 +513,12 @@ impl RunArgs {
 #[derive(Parser)]
 pub struct InteractiveArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
 
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
-
     /// Network snapshot file to load before starting interactive session
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Function name to execute (staged; use 'continue' inside the session)
     #[arg(short, long)]
@@ -603,21 +603,13 @@ impl InteractiveArgs {
 #[derive(Parser)]
 pub struct ReplArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Network snapshot file to load before starting REPL session
     /// Network snapshot file to load before starting interactive session
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Initial storage state as JSON object
     #[arg(short, long)]
@@ -666,12 +658,8 @@ pub struct HistoryPruneArgs {
 #[derive(Parser)]
 pub struct InspectArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Show exported functions
     #[arg(long)]
@@ -729,12 +717,8 @@ pub struct UpgradeCheckArgs {
 #[derive(Parser)]
 pub struct OptimizeArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to analyze (can be specified multiple times)
     #[arg(short, long)]
@@ -757,16 +741,12 @@ pub struct OptimizeArgs {
     pub storage: Option<String>,
 
     /// Network snapshot file to load before analysis
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
 
     /// Expected SHA-256 hash of the WASM file. If provided, loading will fail if the computed hash does not match.
     #[arg(long)]
     pub expected_hash: Option<String>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -969,6 +949,94 @@ mod tests {
         assert_eq!(args.source_map_limit, 5);
         assert_eq!(args.format, OutputFormat::Json);
     }
+
+    #[test]
+    fn run_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "run",
+            "--wasm",
+            "contract.wasm",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Run(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.unwrap().to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn inspect_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "inspect",
+            "--wasm",
+            "contract.wasm",
+        ]).unwrap();
+        let Commands::Inspect(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn optimize_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "optimize",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+        ]).unwrap();
+        let Commands::Optimize(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+
+    #[test]
+    fn profile_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "profile",
+            "--wasm",
+            "contract.wasm",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Profile(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn interactive_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "interactive",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Interactive(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+
+    #[test]
+    fn repl_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "repl",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+        ]).unwrap();
+        let Commands::Repl(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+}
 }
 
 #[derive(Parser)]
@@ -1058,12 +1126,8 @@ impl TuiArgs {
 #[derive(Parser)]
 pub struct ProfileArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to execute
     #[arg(short, long)]
