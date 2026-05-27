@@ -43,10 +43,18 @@ pub struct RuleMetadata {
     pub name: String,
     pub description: String,
     pub severity: Severity,
+    /// Stable category key for downstream filtering (e.g. "security", "upgrade").
+    /// Defaults to "security" when a rule doesn't override it.
+    #[serde(default = "default_rule_category")]
+    pub category: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remediation: Option<String>,
+}
+
+fn default_rule_category() -> String {
+    "security".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -80,6 +88,10 @@ pub trait SecurityRule {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn severity(&self) -> Severity;
+    /// Stable category key for downstream filtering. Defaults to "security".
+    fn category(&self) -> &str {
+        "security"
+    }
     fn rationale(&self) -> Option<&str> {
         None
     }
@@ -93,6 +105,7 @@ pub trait SecurityRule {
             name: self.name().to_string(),
             description: self.description().to_string(),
             severity: self.severity(),
+            category: self.category().to_string(),
             rationale: self.rationale().map(|s| s.to_string()),
             remediation: self.remediation().map(|s| s.to_string()),
         }

@@ -83,6 +83,10 @@ struct DynamicAnalysisMetadata {
 #[derive(serde::Serialize)]
 struct AnalyzeCommandOutput {
     findings: Vec<crate::analyzer::security::SecurityFinding>,
+    /// Rule metadata keyed by rule id (#1272). Lets downstream tools resolve a
+    /// finding's `rule_id` to stable id/name/severity/category/remediation
+    /// fields for filtering. A BTreeMap keeps the JSON ordering deterministic.
+    rules: std::collections::BTreeMap<String, crate::analyzer::security::RuleMetadata>,
     dynamic_analysis: Option<DynamicAnalysisMetadata>,
     warnings: Vec<String>,
     suppressed_count: usize,
@@ -2599,6 +2603,7 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
     )?;
     let output = AnalyzeCommandOutput {
         findings: report.findings,
+        rules: report.rules.into_iter().collect(),
         dynamic_analysis,
         warnings,
         suppressed_count: report.metadata.suppressed_count,
