@@ -1692,10 +1692,22 @@ pub fn optimize(args: OptimizeArgs, _verbosity: Verbosity) -> Result<()> {
 
     let contract_path_str = args.contract.to_string_lossy().to_string();
     let report = optimizer.generate_report(&contract_path_str);
-    let markdown = optimizer.generate_markdown_report(&report);
+    // Render in the requested format. JSON exposes the full structured report
+    // (suggestions, per-function hotspots, and metadata); pretty stays markdown.
+    let rendered = match args.format {
+        crate::cli::args::OutputFormat::Json => {
+            serde_json::to_string_pretty(&report).map_err(|e| {
+                DebuggerError::FileError(format!(
+                    "Failed to serialize optimization report as JSON: {}",
+                    e
+                ))
+            })?
+        }
+        crate::cli::args::OutputFormat::Pretty => optimizer.generate_markdown_report(&report),
+    };
 
     if let Some(output_path) = &args.output {
-        fs::write(output_path, &markdown).map_err(|e| {
+        fs::write(output_path, &rendered).map_err(|e| {
             DebuggerError::FileError(format!(
                 "Failed to write report to {:?}: {}",
                 output_path, e
@@ -1707,7 +1719,7 @@ pub fn optimize(args: OptimizeArgs, _verbosity: Verbosity) -> Result<()> {
         ));
         logging::log_optimization_report(&output_path.to_string_lossy());
     } else {
-        logging::log_display(&markdown, logging::LogLevel::Info);
+        logging::log_display(&rendered, logging::LogLevel::Info);
     }
 
     Ok(())
@@ -1857,6 +1869,22 @@ pub fn compare(args: CompareArgs) -> Result<()> {
 /// Execute the replay command.
 pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     print_info(format!("Loading trace file: {:?}", args.trace_file));
+    // Fail fast on malformed or unsupported-schema-version traces (#1288).
+    let raw_trace: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&args.trace_file).map_err(|e| {
+            DebuggerError::FileError(format!(
+                "Failed to read trace file {:?}: {}",
+                args.trace_file, e
+            ))
+        })?,
+    )
+    .map_err(|e| {
+        DebuggerError::FileError(format!(
+            "Failed to parse trace file {:?} as JSON: {}",
+            args.trace_file, e
+        ))
+    })?;
+    crate::compare::trace::validate_trace_schema(&raw_trace)?;
     let original_trace = crate::compare::ExecutionTrace::from_file(&args.trace_file)?;
 
     // Determine which contract to use
