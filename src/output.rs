@@ -1,4 +1,4 @@
-//! Output and accessibility configuration for screen-reader compatible CLI.
+ .//! Output and accessibility configuration for screen-reader compatible CLI.
 //!
 //! Supports `NO_COLOR` (disable ANSI colors) and `--no-unicode` (ASCII-only output).
 
@@ -42,6 +42,8 @@ pub struct DiagnosticRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub severity: DiagnosticSeverity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 impl DiagnosticRecord {
@@ -56,7 +58,13 @@ impl DiagnosticRecord {
             summary: summary.into(),
             detail,
             severity,
+            category: None,
         }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
     }
 
     pub fn display_line(&self) -> String {
@@ -276,6 +284,17 @@ pub struct BatchExecutionResult {
     pub results: Vec<BatchResult>,
 }
 
+pub fn categorize_error(error: &str) -> &'static str {
+    let lower_err = error.to_lowercase();
+    if lower_err.contains("time") && lower_err.contains("out") {
+        "timeout"
+    } else if lower_err.contains("parser failure") || lower_err.contains("invalid arguments") {
+        "parser_failure"
+    } else {
+        "contract_failure"
+    }
+}
+
 pub fn collect_runtime_diagnostics(
     source_map_loaded: bool,
     budget: &crate::inspector::budget::BudgetInfo,
@@ -334,7 +353,7 @@ pub fn collect_runtime_diagnostics(
             "The most recent debugger action failed.",
             Some(error.to_string()),
             DiagnosticSeverity::Error,
-        ));
+        ).with_category(categorize_error(error)));
     }
 
     diagnostics
@@ -682,5 +701,19 @@ mod tests {
         assert!(json.contains("storage_seed"));
         assert!(json.contains("metadata"));
         assert!(json.contains("contract.wasm"));
+    }
+
+    #[test]
+    fn test_diagnostic_record_category() {
+        let record = DiagnosticRecord::new("test", "summary", None, DiagnosticSeverity::Error)
+            .with_category("timeout");
+        assert_eq!(record.category.as_deref(), Some("timeout"));
+    }
+
+    #[test]
+    fn test_categorize_error() {
+        assert_eq!(categorize_error("Execution timed out after 30 seconds"), "timeout");
+        assert_eq!(categorize_error("Parser failure in function 'test'"), "parser_failure");
+        assert_eq!(categorize_error("Contract failure: trap"), "contract_failure");
     }
 }
