@@ -1075,6 +1075,10 @@ pub struct CompareArgs {
     /// Repeatable. Useful for timestamps, sequence numbers, and similar metadata.
     #[arg(long, value_name = "FIELD")]
     pub ignore_field: Vec<String>,
+
+    /// Output format for the comparison report (pretty or json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 }
 
 /// Arguments for the TUI dashboard subcommand

@@ -2095,7 +2095,15 @@ pub fn compare(args: CompareArgs) -> Result<()> {
         args.ignore_field.clone(),
     )?;
     let report = crate::compare::CompareEngine::compare_with_filters(&trace_a, &trace_b, &filters);
-    let rendered = crate::compare::CompareEngine::render_report(&report);
+    let rendered = match args.format {
+        OutputFormat::Json => {
+            let envelope = crate::output::VersionedOutput::success("compare", &report);
+            serde_json::to_string_pretty(&envelope).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize comparison report: {}", e))
+            })?
+        }
+        OutputFormat::Pretty => crate::compare::CompareEngine::render_report(&report),
+    };
 
     if let Some(output_path) = &args.output {
         fs::write(output_path, &rendered).map_err(|e| {
