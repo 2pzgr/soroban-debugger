@@ -1058,11 +1058,22 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         let mut pauses = Vec::new();
         let hit_entry_breakpoint = args.breakpoint.iter().any(|bp| bp == function);
         if engine.is_paused() && hit_entry_breakpoint {
+            let storage_mutation = if storage_diff.is_empty() {
+                None
+            } else {
+                let mutated_keys = storage_diff.mutated_keys();
+                Some(crate::debugger::timeline::StorageMutationMarker {
+                    affected_key_count: mutated_keys.len(),
+                    mutated_keys,
+                })
+            };
+
             pauses.push(TimelinePausePoint {
                 index: 0,
                 reason: "breakpoint".to_string(),
                 location: None,
                 call_stack: stack_summary.clone(),
+                storage_mutation,
             });
         }
 
@@ -3140,6 +3151,16 @@ mod tests {
         };
 
         let json = serde_json::to_value(&report).unwrap();
+        assert!(json.get("binary").is_some());
+        assert!(json.get("config").is_some());
+        assert!(json.get("history").is_some());
+        assert!(json.get("plugins").is_some());
+        assert!(json.get("protocol").is_some());
+        assert!(json.get("vscode_extension").is_some());
+    }
+}
+//
+///////
         assert!(json.get("binary").is_some());
         assert!(json.get("config").is_some());
         assert!(json.get("history").is_some());

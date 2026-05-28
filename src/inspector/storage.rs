@@ -401,6 +401,13 @@ impl StorageInspector {
         *self.writes.entry(key.to_string()).or_insert(0) += 1;
     }
 
+    /// Get a sorted list of all keys that have been written to
+    pub fn mutated_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.writes.keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
     /// Analyze access patterns
     pub fn analyze_access_patterns(&self) -> AccessPatternReport {
         let mut stats: HashMap<String, AccessStats> = HashMap::new();
@@ -705,6 +712,17 @@ pub struct StorageDiff {
 impl StorageDiff {
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.modified.is_empty() && self.deleted.is_empty()
+    }
+
+    /// Extract a sorted list of all keys that were mutated (added, modified, or deleted)
+    pub fn mutated_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.added.keys().cloned()
+            .chain(self.modified.keys().cloned())
+            .chain(self.deleted.iter().cloned())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 }
 
@@ -1152,6 +1170,12 @@ mod tests {
             &("old".to_string(), "new".to_string())
         );
         assert!(diff.deleted.contains(&"key_76".to_string()));
+
+        let mutated = diff.mutated_keys();
+        assert_eq!(mutated.len(), 75);
+        assert!(mutated.contains(&"key_101".to_string()));
+        assert!(mutated.contains(&"key_51".to_string()));
+        assert!(mutated.contains(&"key_76".to_string()));
     }
 
     #[test]
