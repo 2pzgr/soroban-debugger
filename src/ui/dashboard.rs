@@ -11,11 +11,13 @@
 
 use crate::debugger::engine::DebuggerEngine;
 use crate::inspector::budget::BudgetInfo;
-use crate::inspector::storage::{StorageInspector, StorageQuery};
 use crate::inspector::stack::CallFrame;
+use crate::inspector::storage::{StorageInspector, StorageQuery};
 use crate::{DebuggerError, Result};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -354,12 +356,21 @@ impl DashboardApp {
         );
 
         let logs: Vec<_> = self
+        let recent_alerts: Vec<_> = self
             .log_entries
             .iter()
             .filter(|entry| matches!(entry.level, LogLevel::Warn | LogLevel::Error))
             .collect();
         
         for entry in logs.iter().rev().take(8).rev() {
+        for entry in recent_alerts
+            .into_iter()
+            .rev()
+            .take(8)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
             let severity = match entry.level {
                 LogLevel::Warn => crate::output::DiagnosticSeverity::Warning,
                 LogLevel::Error => crate::output::DiagnosticSeverity::Error,
@@ -400,6 +411,143 @@ impl DashboardApp {
             .diagnostics_scroll_state
             .content_length(len)
             .position(selected.unwrap_or(0));
+    }
+
+    fn storage_query(&self, jump_to: Option<String>) -> StorageQuery {
+        StorageQuery {
+            filter: (!self.storage_filter.trim().is_empty()).then(|| self.storage_filter.clone()),
+            jump_to,
+            page: self.storage_selected / self.storage_page_size.max(1),
+            page_size: self.storage_page_size.max(1),
+        }
+    }
+
+    fn storage_page(&self) -> crate::inspector::storage::StoragePage {
+        StorageInspector::build_page(&self.storage_entries, &self.storage_query(None))
+    }
+
+    fn storage_filtered_len(&self) -> usize {
+        self.storage_page().filtered_entries
+    }
+
+    fn set_storage_page_size(&mut self, page_size: usize) {
+        self.storage_page_size = page_size.max(1);
+        self.clamp_storage_selection();
+        self.sync_storage_scroll_state();
+    }
+
+    fn clamp_storage_selection(&mut self) {
+        let filtered_len = self.storage_filtered_len();
+        self.storage_selected = if filtered_len == 0 {
+            0
+        } else {
+            self.storage_selected.min(filtered_len.saturating_sub(1))
+        };
+        self.storage_state
+            .select((filtered_len > 0).then_some(self.storage_selected));
+    }
+
+    fn sync_storage_scroll_state(&mut self) {
+        let filtered_len = self.storage_filtered_len();
+        self.storage_scroll_state = self
+            .storage_scroll_state
+            .content_length(filtered_len)
+            .position(self.storage_selected);
+        self.storage_state
+            .select((filtered_len > 0).then_some(self.storage_selected));
+    }
+
+    fn move_storage_selection(&mut self, delta: isize) {
+        let filtered_len = self.storage_filtered_len();
+        if filtered_len == 0 {
+            self.storage_selected = 0;
+        } else if delta.is_negative() {
+            self.storage_selected = self.storage_selected.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.storage_selected =
+                (self.storage_selected + delta as usize).min(filtered_len.saturating_sub(1));
+        }
+        self.sync_storage_scroll_state();
+    }
+
+    fn move_storage_page(&mut self, delta: isize) {
+        let step = self.storage_page_size.max(1) as isize;
+        self.move_storage_selection(delta * step);
+    }
+
+    fn move_storage_to_boundary(&mut self, end: bool) {
+        let filtered_len = self.storage_filtered_len();
+        self.storage_selected = if end {
+            filtered_len.saturating_sub(1)
+        } else {
+            0
+        };
+        self.sync_storage_scroll_state();
+    }
+
+    fn open_storage_input(&mut self, mode: StorageInputMode) {
+        self.storage_input_mode = Some(mode);
+        self.storage_input_value = match mode {
+            StorageInputMode::Filter => self.storage_filter.clone(),
+            StorageInputMode::Jump => String::new(),
+        };
+    }
+
+    fn clear_storage_filter(&mut self) {
+        self.storage_filter.clear();
+        self.storage_input_mode = None;
+        self.storage_input_value.clear();
+        self.storage_selected = 0;
+        self.sync_storage_scroll_state();
+    }
+
+    fn handle_storage_input_key(&mut self, key: KeyEvent) -> bool {
+        let Some(mode) = self.storage_input_mode else {
+            return false;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.storage_input_mode = None;
+                self.storage_input_value.clear();
+            }
+            KeyCode::Enter => {
+                let value = self.storage_input_value.trim().to_string();
+                match mode {
+                    StorageInputMode::Filter => {
+                        self.storage_filter = value;
+                        self.storage_selected = 0;
+                    }
+                    StorageInputMode::Jump => {
+                        let page = StorageInspector::build_page(
+                            &self.storage_entries,
+                            &StorageQuery {
+                                filter: (!self.storage_filter.trim().is_empty())
+                                    .then(|| self.storage_filter.clone()),
+                                jump_to: Some(value),
+                                page: 0,
+                                page_size: self.storage_page_size.max(1),
+                            },
+                        );
+                        if let Some(index) = page.jump_match_index {
+                            self.storage_selected = index;
+                        }
+                    }
+                }
+                self.storage_input_mode = None;
+                self.storage_input_value.clear();
+                self.sync_storage_scroll_state();
+            }
+            KeyCode::Backspace => {
+                self.storage_input_value.pop();
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.storage_input_value.push(c);
+            }
+            _ => {}
+        }
+
+        true
     }
 
     // ── Step action ──────────────────────────────────────────────────────────
@@ -759,40 +907,26 @@ fn run_app<B: ratatui::backend::Backend>(
                     }
 
                     // ── Debugger actions ──────────────────────────
-                    KeyCode::PageDown => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.move_storage_page(1);
-                        }
+                    KeyCode::PageDown if app.active_pane == ActivePane::Storage => {
+                        app.move_storage_page(1);
                     }
-                    KeyCode::PageUp => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.move_storage_page(-1);
-                        }
+                    KeyCode::PageUp if app.active_pane == ActivePane::Storage => {
+                        app.move_storage_page(-1);
                     }
-                    KeyCode::Home => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.move_storage_to_boundary(false);
-                        }
+                    KeyCode::Home if app.active_pane == ActivePane::Storage => {
+                        app.move_storage_to_boundary(false);
                     }
-                    KeyCode::End => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.move_storage_to_boundary(true);
-                        }
+                    KeyCode::End if app.active_pane == ActivePane::Storage => {
+                        app.move_storage_to_boundary(true);
                     }
-                    KeyCode::Char('/') => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.open_storage_input(StorageInputMode::Filter);
-                        }
+                    KeyCode::Char('/') if app.active_pane == ActivePane::Storage => {
+                        app.open_storage_input(StorageInputMode::Filter);
                     }
-                    KeyCode::Char('g') => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.open_storage_input(StorageInputMode::Jump);
-                        }
+                    KeyCode::Char('g') if app.active_pane == ActivePane::Storage => {
+                        app.open_storage_input(StorageInputMode::Jump);
                     }
-                    KeyCode::Char('x') | KeyCode::Esc => {
-                        if app.active_pane == ActivePane::Storage {
-                            app.clear_storage_filter();
-                        }
+                    KeyCode::Char('x') | KeyCode::Esc if app.active_pane == ActivePane::Storage => {
+                        app.clear_storage_filter();
                     }
                     KeyCode::Char('s') | KeyCode::Char('S') => {
                         app.do_step();
@@ -1179,12 +1313,18 @@ fn render_storage(f: &mut Frame, app: &mut DashboardApp, area: Rect) {
     } else {
         format!(
             "  filter={}  /=edit  g=jump  PgUp/PgDn=page  x=clear",
-            truncate(&app.storage_filter, sections[0].width.saturating_sub(10) as usize)
+            truncate(
+                &app.storage_filter,
+                sections[0].width.saturating_sub(10) as usize
+            )
         )
     };
     let meta = Paragraph::new(vec![
         Line::from(Span::styled(summary, Style::default().fg(COLOR_TEXT_DIM))),
-        Line::from(Span::styled(filter_line, Style::default().fg(COLOR_TEXT_DIM))),
+        Line::from(Span::styled(
+            filter_line,
+            Style::default().fg(COLOR_TEXT_DIM),
+        )),
     ])
     .style(Style::default().bg(COLOR_SURFACE));
     f.render_widget(meta, sections[0]);

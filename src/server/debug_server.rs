@@ -14,7 +14,6 @@ use crate::server::protocol::{
 use crate::simulator::SnapshotLoader;
 use crate::Result;
 use chrono::Utc;
-use std::collections::HashSet;
 use std::fs;
 use std::io::BufReader as StdBufReader;
 use std::path::Path;
@@ -42,9 +41,14 @@ pub struct DebugServer {
     contract_wasm: Option<Vec<u8>>,
     repeat_count: Option<u32>,
     storage_filter: Vec<String>,
+    show_events: bool,
+    event_filter: Vec<String>,
+    mock_specs: Vec<String>,
     /// Opaque session identifier issued during the initial handshake.
     /// Clients present this value in a `Reconnect` request to re-attach.
     session_id: String,
+    session_created_at: String,
+    session_label: Option<String>,
     /// Instant when the last client disconnected (used for grace-period expiry).
     last_disconnect: Option<std::time::Instant>,
     /// Log of successful reconnection events in the current session.
@@ -64,9 +68,8 @@ struct SessionContext {
     info: RemoteSessionInfo,
 }
 
-static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
-
 impl DebugServer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         host: String,
         token: Option<String>,
@@ -98,7 +101,12 @@ impl DebugServer {
             contract_wasm: None,
             repeat_count,
             storage_filter,
+            show_events,
+            event_filter,
+            mock_specs,
             session_id: Uuid::new_v4().to_string(),
+            session_created_at: Utc::now().to_rfc3339(),
+            session_label: None,
             last_disconnect: None,
             reconnection_log: ReconnectionLog::new(),
             mock_specs,
@@ -179,11 +187,20 @@ impl DebugServer {
                 self.last_disconnect = None;
                 // Generate a new session id for this fresh connection
                 self.session_id = Uuid::new_v4().to_string();
+                self.session_created_at = Utc::now().to_rfc3339();
+                self.session_label = None;
             }
         }
 
         let mut authenticated = self.token.is_none();
         let mut handshake_done = false;
+        let mut session_ctx = SessionContext {
+            info: RemoteSessionInfo {
+                session_id: self.session_id.clone(),
+                created_at: self.session_created_at.clone(),
+                label: self.session_label.clone(),
+            },
+        };
         let (reader, writer) = tokio::io::split(stream);
         let mut reader = tokio::io::BufReader::new(reader);
         let mut session_ctx = SessionContext {
@@ -341,6 +358,7 @@ impl DebugServer {
                     .filter(|s| !s.is_empty())
                 {
                     session_ctx.info.label = Some(label.to_string());
+                    self.session_label = session_ctx.info.label.clone();
                 }
                 let server_name = "soroban-debug".to_string();
                 let server_version = env!("CARGO_PKG_VERSION").to_string();
@@ -406,8 +424,8 @@ impl DebugServer {
                                 protocol_min: PROTOCOL_MIN_VERSION,
                                 protocol_max: PROTOCOL_MAX_VERSION,
                                 selected_version,
-                                session_id: session_ctx.info.session_id.clone(),
-                                session_created_at: session_ctx.info.created_at.clone(),
+                                session_id: Some(session_ctx.info.session_id.clone()),
+                                session_created_at: Some(session_ctx.info.created_at.clone()),
                                 session_label: session_ctx.info.label.clone(),
                                 heartbeat_interval_ms: *heartbeat_interval_ms,
                                 idle_timeout_ms: idle_timeout,
@@ -554,7 +572,7 @@ impl DebugServer {
                     self.reconnection_log.record(
                         &self.session_id,
                         instant.elapsed(),
-                        self.engine.as_ref().map_or(false, |e| e.is_paused()),
+                        self.engine.as_ref().is_some_and(|e| e.is_paused()),
                     );
                 }
                 info!("Client reconnected to session {}", self.session_id);

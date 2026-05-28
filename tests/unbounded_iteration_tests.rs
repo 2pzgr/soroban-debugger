@@ -345,7 +345,7 @@ fn dynamic_analysis_detects_high_storage_pressure() {
 
     // Create a trace with many storage reads (simulating unbounded iteration)
     for i in 0..100 {
-        trace.push(DynamicTraceEvent { invocation_reason: None, 
+        trace.push(DynamicTraceEvent {
             sequence: i as usize,
             kind: DynamicTraceEventKind::StorageRead,
             message: String::new(),
@@ -392,7 +392,7 @@ fn dynamic_analysis_ignores_reasonable_storage_access() {
 
     // Create a trace with reasonable storage access
     for i in 0..10 {
-        trace.push(DynamicTraceEvent { invocation_reason: None, 
+        trace.push(DynamicTraceEvent {
             sequence: i as usize,
             kind: DynamicTraceEventKind::StorageRead,
             message: String::new(),
@@ -472,7 +472,7 @@ fn dynamic_analysis_detects_high_storage_write_pressure() {
     let mut trace = Vec::new();
 
     for i in 0..48 {
-        trace.push(DynamicTraceEvent { invocation_reason: None, 
+        trace.push(DynamicTraceEvent {
             sequence: i as usize,
             kind: DynamicTraceEventKind::StorageWrite,
             message: String::new(),
@@ -526,7 +526,7 @@ fn dynamic_analysis_ignores_reasonable_storage_write_access() {
     let mut trace = Vec::new();
 
     for i in 0..8 {
-        trace.push(DynamicTraceEvent { invocation_reason: None, 
+        trace.push(DynamicTraceEvent {
             sequence: i as usize,
             kind: DynamicTraceEventKind::StorageWrite,
             message: String::new(),

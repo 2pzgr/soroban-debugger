@@ -61,6 +61,8 @@ pub struct RemoteClientConfig {
     pub session_label: Option<String>,
 }
 
+pub type InspectResult = (Option<String>, u64, bool, Vec<String>, Option<String>);
+
 impl Default for RemoteClientConfig {
     fn default() -> Self {
         Self {
@@ -116,6 +118,8 @@ pub struct RemoteClient {
     message_id: u64,
     authenticated: bool,
     config: RemoteClientConfig,
+    selected_protocol_version: Option<u32>,
+    session_info: Option<crate::server::protocol::RemoteSessionInfo>,
     /// Session identifier received from the server during the initial handshake.
     /// Used to reconnect to an existing session after a transient disconnect.
     session_id: Option<String>,
@@ -193,6 +197,8 @@ impl RemoteClient {
             message_id: 0,
             authenticated: token.is_none(),
             config,
+            selected_protocol_version: None,
+            session_info: None,
             session_id: None,
             selected_protocol_version: None,
             session_info: None,
@@ -372,6 +378,23 @@ impl RemoteClient {
             } => {
                 self.selected_protocol_version = Some(selected_version);
                 self.negotiated_capabilities = Some(server_capabilities);
+                session_id,
+                session_created_at,
+                session_label,
+                ..
+            } => {
+                self.selected_protocol_version = Some(selected_version);
+                self.session_id = session_id.clone();
+                self.session_info =
+                    session_id
+                        .as_ref()
+                        .map(|sid| crate::server::protocol::RemoteSessionInfo {
+                            session_id: sid.clone(),
+                            created_at: session_created_at
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            label: session_label.clone(),
+                        });
                 Ok(selected_version)
             }
             DebugResponse::IncompatibleCapabilities {
@@ -574,7 +597,7 @@ impl RemoteClient {
     }
 
     /// Inspect current state
-    pub fn inspect(&mut self) -> Result<(Option<String>, u64, bool, Vec<String>, Option<String>)> {
+    pub fn inspect(&mut self) -> Result<InspectResult> {
         let response =
             self.send_request_with_retry(DebugRequest::Inspect, RequestClass::Inspect, true)?;
 
@@ -913,19 +936,13 @@ impl RemoteClient {
             }
             DebugResponse::SessionExpired { message } => {
                 self.session_id = None;
-                Err(DebuggerError::ExecutionError(format!(
-                    "Session expired: {}",
-                    message
-                ))
-                .into())
+                Err(DebuggerError::ExecutionError(format!("Session expired: {}", message)).into())
             }
-            DebugResponse::Error { message } => {
-                Err(DebuggerError::ExecutionError(message).into())
-            }
-            _ => Err(DebuggerError::ExecutionError(
-                "Unexpected response to Reconnect".to_string(),
-            )
-            .into()),
+            DebugResponse::Error { message } => Err(DebuggerError::ExecutionError(message).into()),
+            _ => Err(
+                DebuggerError::ExecutionError("Unexpected response to Reconnect".to_string())
+                    .into(),
+            ),
         }
     }
 
@@ -1309,6 +1326,9 @@ mod tests {
                     protocol_min: 1,
                     protocol_max: 1,
                     selected_version: 1,
+                    session_id: None,
+                    session_created_at: None,
+                    session_label: None,
                     heartbeat_interval_ms: None,
                     idle_timeout_ms: None,
                 },
@@ -1352,6 +1372,9 @@ mod tests {
                             protocol_min: PROTOCOL_MIN_VERSION,
                             protocol_max: PROTOCOL_MAX_VERSION,
                             selected_version: PROTOCOL_MAX_VERSION,
+                            session_id: None,
+                            session_created_at: None,
+                            session_label: None,
                             heartbeat_interval_ms: None,
                             idle_timeout_ms: None,
                         },
@@ -1373,6 +1396,9 @@ mod tests {
                         protocol_min: 1,
                         protocol_max: 1,
                         selected_version: 1,
+                        session_id: None,
+                        session_created_at: None,
+                        session_label: None,
                         heartbeat_interval_ms: None,
                         idle_timeout_ms: None,
                     },
@@ -1403,6 +1429,7 @@ mod tests {
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
+            session_label: None,
         };
 
         let mut client =
@@ -1448,6 +1475,9 @@ mod tests {
                                 protocol_min: 1,
                                 protocol_max: 1,
                                 selected_version: 1,
+                                session_id: None,
+                                session_created_at: None,
+                                session_label: None,
                                 heartbeat_interval_ms: None,
                                 idle_timeout_ms: None,
                             },
@@ -1497,6 +1527,7 @@ mod tests {
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
+            session_label: None,
         };
 
         let mut client =

@@ -332,6 +332,9 @@ impl ContractExecutor {
                 }
 
                 for (k, v) in map {
+                    if k == "contract_code" || k.contains(':') {
+                        continue;
+                    }
                     let key_json = serde_json::json!({ "type": "symbol", "value": k });
                     let key_val = parse_one_val(&self.env, &key_json)?;
                     let value_json = normalize_numbers(&v)?;

@@ -7,7 +7,6 @@ import {
   WIRE_PROTOCOL_MAX_VERSION,
   WIRE_PROTOCOL_MIN_VERSION,
 } from "../dap/protocol";
-import { shouldPromoteToFunctionBreakpoint } from "../dap/sourceBreakpoints";
 import { LogManager, LogLevel, LogPhase } from "../debug/logManager";
 
 export interface DebuggerProcessConfig {

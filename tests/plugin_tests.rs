@@ -17,6 +17,8 @@ impl MockPlugin {
     fn new(name: &str) -> Self {
         Self {
             manifest: PluginManifest {
+                schema_version: soroban_debugger::plugin::manifest::MANIFEST_SCHEMA_VERSION
+                    .to_string(),
                 name: name.to_string(),
                 version: "1.0.0".to_string(),
                 description: "Mock plugin for testing".to_string(),
@@ -100,6 +102,7 @@ impl InspectorPlugin for MockPlugin {
 fn test_plugin_manifest_validation() {
     // Valid manifest
     let manifest = PluginManifest {
+        schema_version: soroban_debugger::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
         name: "test-plugin".to_string(),
         version: "1.0.0".to_string(),
         description: "Test plugin".to_string(),
@@ -247,6 +250,7 @@ fn test_plugin_loader_discovery() {
     std::fs::create_dir_all(&plugin_dir).unwrap();
 
     let manifest = PluginManifest {
+        schema_version: soroban_debugger::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
         name: "test-plugin".to_string(),
         version: "1.0.0".to_string(),
         description: "Test".to_string(),

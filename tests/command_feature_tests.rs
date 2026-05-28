@@ -102,6 +102,7 @@ fn symbolic_json_outputs_path_decisions() {
             "increment",
             "--format",
             "json",
+            "--pretty",
         ])
         .assert()
         .success()

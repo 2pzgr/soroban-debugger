@@ -222,6 +222,7 @@ mod tests {
     #[test]
     fn test_plugin_trait() {
         let manifest = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "test-plugin".to_string(),
             version: "1.0.0".to_string(),
             description: "A test plugin".to_string(),

@@ -20,6 +20,17 @@ setup_repo() {
     cp "$SOURCE_SCRIPT" "$repo_root/scripts/check_benchmark_regressions.sh"
     chmod +x "$repo_root/scripts/check_benchmark_regressions.sh"
 
+    cat > "$repo_root/Cargo.toml" <<'EOF'
+[package]
+name = "bench-regression-selftest"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "fake-bench"
+harness = false
+EOF
+
     git init -b main "$repo_root" >/dev/null
     git -C "$repo_root" config user.name "Codex Test"
     git -C "$repo_root" config user.email "codex@example.com"
@@ -27,7 +38,7 @@ setup_repo() {
     cat > "$repo_root/branch.txt" <<'EOF'
 main
 EOF
-    git -C "$repo_root" add branch.txt scripts/check_benchmark_regressions.sh
+    git -C "$repo_root" add Cargo.toml branch.txt scripts/check_benchmark_regressions.sh
     git -C "$repo_root" commit -m "main branch" >/dev/null
 
     git -C "$repo_root" checkout -b feature >/dev/null

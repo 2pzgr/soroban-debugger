@@ -27,6 +27,7 @@ mod config {
 #[allow(dead_code)]
 mod debugger {
     pub mod breakpoint {
+        #[derive(Clone, Debug)]
         pub struct BreakpointSpec {
             pub id: String,
             pub function: String,

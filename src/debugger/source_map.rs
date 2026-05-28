@@ -627,7 +627,7 @@ impl SourceMap {
                 let mut resolved_line = *requested_line;
                 let mut adjusted = false;
 
-                let offsets = if let Some(offsets) = line_to_offsets.get(requested_line) {
+                let _offsets = if let Some(offsets) = line_to_offsets.get(requested_line) {
                     offsets.as_slice()
                 } else {
                     let mut found: Option<(u32, &Vec<usize>)> = None;
@@ -704,7 +704,6 @@ fn dwarf_section_sizes(wasm_bytes: &[u8]) -> Result<HashMap<String, usize>> {
 #[derive(Debug, Clone)]
 struct WasmIndex {
     function_bodies: Vec<(std::ops::Range<usize>, u32)>,
-    exports_by_function: HashMap<u32, Vec<String>>,
     function_by_export: HashMap<String, u32>,
 }
 
@@ -713,7 +712,6 @@ impl WasmIndex {
         let mut imported_func_count = 0u32;
         let mut local_function_index = 0u32;
         let mut function_bodies: Vec<(std::ops::Range<usize>, u32)> = Vec::new();
-        let mut exports_by_function: HashMap<u32, Vec<String>> = HashMap::new();
         let mut function_by_export: HashMap<String, u32> = HashMap::new();
 
         for payload in Parser::new(0).parse_all(wasm_bytes) {
@@ -739,10 +737,6 @@ impl WasmIndex {
                         })?;
                         if matches!(export.kind, wasmparser::ExternalKind::Func) {
                             let func_index = export.index;
-                            exports_by_function
-                                .entry(func_index)
-                                .or_default()
-                                .push(export.name.to_string());
                             // Prefer first name if multiple exports point at same index.
                             function_by_export
                                 .entry(export.name.to_string())
@@ -764,38 +758,12 @@ impl WasmIndex {
 
         Ok(Self {
             function_bodies,
-            exports_by_function,
             function_by_export,
         })
     }
 
     fn function_index_for_export(&self, export_name: &str) -> Option<u32> {
         self.function_by_export.get(export_name).copied()
-    }
-
-    fn export_names_for_function(&self, function_index: u32) -> Option<&Vec<String>> {
-        self.exports_by_function.get(&function_index)
-    }
-
-    fn function_index_for_offset(&self, offset: usize) -> Option<u32> {
-        let bodies = self.function_bodies.as_slice();
-        if bodies.is_empty() {
-            return None;
-        }
-
-        // Find rightmost body with start <= offset.
-        let idx = match bodies.binary_search_by_key(&offset, |(range, _)| range.start) {
-            Ok(i) => i,
-            Err(0) => return None,
-            Err(i) => i - 1,
-        };
-
-        let (range, function_index) = &bodies[idx];
-        if offset >= range.start && offset < range.end {
-            Some(*function_index)
-        } else {
-            None
-        }
     }
 }
 
@@ -927,47 +895,6 @@ mod tests {
 
         bytes.extend_from_slice(&uleb128(section.len()));
         bytes.extend_from_slice(&section);
-        bytes
-    }
-
-    fn push_section(bytes: &mut Vec<u8>, section_id: u8, payload: &[u8]) {
-        bytes.push(section_id);
-        bytes.extend_from_slice(&uleb128(payload.len()));
-        bytes.extend_from_slice(payload);
-    }
-
-    fn wasm_with_functions_and_exports(exports: &[(&str, u32)], function_count: u32) -> Vec<u8> {
-        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-
-        let type_section = vec![0x01, 0x60, 0x00, 0x00];
-        push_section(&mut bytes, 0x01, &type_section);
-
-        let mut function_section = Vec::new();
-        function_section.extend_from_slice(&uleb128(function_count as usize));
-        function_section.extend(std::iter::repeat_n(0x00, function_count as usize));
-        push_section(&mut bytes, 0x03, &function_section);
-
-        if !exports.is_empty() {
-            let mut export_section = Vec::new();
-            export_section.extend_from_slice(&uleb128(exports.len()));
-            for (name, function_index) in exports {
-                export_section.extend_from_slice(&uleb128(name.len()));
-                export_section.extend_from_slice(name.as_bytes());
-                export_section.push(0x00);
-                export_section.extend_from_slice(&uleb128(*function_index as usize));
-            }
-            push_section(&mut bytes, 0x07, &export_section);
-        }
-
-        let mut code_section = Vec::new();
-        code_section.extend_from_slice(&uleb128(function_count as usize));
-        for _ in 0..function_count {
-            code_section.push(0x02);
-            code_section.push(0x00);
-            code_section.push(0x0b);
-        }
-        push_section(&mut bytes, 0x0a, &code_section);
-
         bytes
     }
 

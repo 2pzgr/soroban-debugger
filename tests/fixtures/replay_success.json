@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "command": "replay",
+  "status": "success",
+  "result": {
+    "label_a": "v1.0 baseline",
+    "label_b": "replayed",
+    "storage_diff": {
+      "only_in_a": {},
+      "only_in_b": {},
+      "modified": {},
+      "unchanged_count": 5
+    },
+    "budget_diff": {
+      "a": {
+        "cpu_instructions": 45000,
+        "memory_bytes": 15360,
+        "cpu_limit": 100000,
+        "memory_limit": 40960
+      },
+      "b": {
+        "cpu_instructions": 45000,
+        "memory_bytes": 15360,
+        "cpu_limit": 100000,
+        "memory_limit": 40960
+      },
+      "cpu_delta": 0,
+      "memory_delta": 0
+    },
+    "return_value_diff": {
+      "a": {"status": "ok"},
+      "b": {"status": "ok"},
+      "equal": true
+    },
+    "flow_diff": {
+      "a_calls": [
+        {"function": "transfer", "args": null, "depth": 0}
+      ],
+      "b_calls": [
+        {"function": "transfer", "args": null, "depth": 0}
+      ],
+      "filtered_a_calls": ["transfer()"],
+      "filtered_b_calls": ["transfer()"],
+      "diff_lines": [
+        {"same": "transfer()"}
+      ],
+      "identical": true
+    },
+    "event_diff": {
+      "a_events": [],
+      "b_events": [],
+      "filtered_a_events": [],
+      "filtered_b_events": [],
+      "identical": true
+    }
+  },
+  "error": null
+}

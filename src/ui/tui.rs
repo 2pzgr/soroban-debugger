@@ -88,9 +88,13 @@ impl DebuggerUI {
             })?;
 
             let mut input = String::new();
-            io::stdin().read_line(&mut input).map_err(|e| {
+            let bytes_read = io::stdin().read_line(&mut input).map_err(|e| {
                 crate::DebuggerError::IoError(format!("Failed to read line: {}", e))
             })?;
+            if bytes_read == 0 {
+                tracing::info!("Input stream closed; exiting debugger");
+                break;
+            }
 
             let command = input.trim();
             if command.is_empty() {
@@ -259,6 +263,7 @@ impl DebuggerUI {
     fn inspect(&self) {
         crate::logging::log_display("\n=== Current State ===", crate::logging::LogLevel::Info);
         if let Ok(state) = self.engine.state().lock() {
+            let pause_reason = state.pause_reason().map(|reason| reason.as_str());
             if let Some(func) = state.current_function() {
                 crate::logging::log_display(
                     format!("Function: {}", func),
@@ -275,7 +280,7 @@ impl DebuggerUI {
                 format!("Paused: {}", self.engine.is_paused()),
                 crate::logging::LogLevel::Info,
             );
-            if let Some(reason) = self.engine.pause_reason_label() {
+            if let Some(reason) = pause_reason {
                 crate::logging::log_display(
                     format!("Pause reason: {}", reason),
                     crate::logging::LogLevel::Info,
@@ -398,6 +403,67 @@ impl DebuggerUI {
         }
 
         crate::logging::log_display("", crate::logging::LogLevel::Info);
+    }
+
+    fn parse_storage_display_options(parts: &[&str]) -> Result<StorageDisplayOptions> {
+        let mut options = StorageDisplayOptions::default();
+        let mut idx = 0;
+
+        while idx < parts.len() {
+            match parts[idx] {
+                "--page" => {
+                    idx += 1;
+                    let value = parts
+                        .get(idx)
+                        .ok_or_else(|| miette::miette!("--page requires a value"))?;
+                    options.page = value
+                        .parse::<usize>()
+                        .map_err(|_| miette::miette!("Invalid value for --page: {}", value))?
+                        .max(1);
+                }
+                "--page-size" => {
+                    idx += 1;
+                    let value = parts
+                        .get(idx)
+                        .ok_or_else(|| miette::miette!("--page-size requires a value"))?;
+                    options.page_size = value
+                        .parse::<usize>()
+                        .map_err(|_| miette::miette!("Invalid value for --page-size: {}", value))?
+                        .max(1);
+                }
+                "--jump" => {
+                    idx += 1;
+                    let value = parts
+                        .get(idx)
+                        .ok_or_else(|| miette::miette!("--jump requires a value"))?;
+                    options.jump_to = Some((*value).to_string());
+                }
+                value if value.starts_with("--") => {
+                    return Err(miette::miette!("Unknown storage option: {}", value));
+                }
+                value => {
+                    let current = options.filter.get_or_insert_with(String::new);
+                    if !current.is_empty() {
+                        current.push(' ');
+                    }
+                    current.push_str(value);
+                }
+            }
+            idx += 1;
+        }
+
+        Ok(options)
+    }
+
+    fn show_palette(&self) -> Result<()> {
+        crate::logging::log_display("", crate::logging::LogLevel::Info);
+        crate::logging::log_display("=== Command Palette ===", crate::logging::LogLevel::Info);
+        crate::logging::log_display("  run <func> [args]", crate::logging::LogLevel::Info);
+        crate::logging::log_display("  storage [query]", crate::logging::LogLevel::Info);
+        crate::logging::log_display("  diagnostics", crate::logging::LogLevel::Info);
+        crate::logging::log_display("  list-breaks", crate::logging::LogLevel::Info);
+        crate::logging::log_display("", crate::logging::LogLevel::Info);
+        Ok(())
     }
 
     fn print_help(&self) {

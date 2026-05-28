@@ -1458,6 +1458,22 @@ mod tests {
         assert!(verify_wasm_hash(computed, None).is_ok());
     }
 
+    #[test]
+    fn test_checksum_mismatch_message_includes_sha256() {
+        // #1271: hash algorithm context must be explicit in mismatch errors so
+        // callers can supply the right hash format.
+        let computed = "abcdef123456";
+        let expected = Some("wronghash999".to_string());
+        let err = verify_wasm_hash(computed, expected.as_ref()).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("sha256"),
+            "expected sha256 algorithm context in error, got: {msg}"
+        );
+        assert!(msg.contains("wronghash999"), "expected hash missing from message: {msg}");
+        assert!(msg.contains("abcdef123456"), "computed hash missing from message: {msg}");
+    }
+
     // ── WASM test-module builder ──────────────────────────────────────────────
 
     /// Encode `value` as an unsigned LEB128 byte sequence.

@@ -166,23 +166,28 @@ impl NetworkSnapshot {
     pub fn fingerprint(&self) -> String {
         // Create a normalized copy of the snapshot
         let mut normalized = self.clone();
-        
+
         // Sort accounts by address for determinism
-        normalized.accounts.sort_by(|a, b| a.address.cmp(&b.address));
-        
+        normalized
+            .accounts
+            .sort_by(|a, b| a.address.cmp(&b.address));
+
         // Sort contracts by contract_id for determinism
-        normalized.contracts.sort_by(|a, b| a.contract_id.cmp(&b.contract_id));
-        
+        normalized
+            .contracts
+            .sort_by(|a, b| a.contract_id.cmp(&b.contract_id));
+
         // Data maps (BTreeMap) and Storage maps (BTreeMap) are already sorted by keys.
         // Serialize to compact JSON which does not rely on whitespace
-        let json = serde_json::to_string(&normalized).expect("Failed to serialize normalized state");
-        
+        let json =
+            serde_json::to_string(&normalized).expect("Failed to serialize normalized state");
+
         // Compute SHA-256 hash
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(json.as_bytes());
         let result = hasher.finalize();
-        
+
         // Return as a hex string
         hex::encode(result)
     }
@@ -481,7 +486,7 @@ mod tests {
         // Modify a state detail should change fingerprint
         let mut snapshot3 = snapshot1.clone();
         snapshot3.get_account_mut("GABCD123").unwrap().balance = "1000001".to_string();
-        
+
         assert_ne!(snapshot1.fingerprint(), snapshot3.fingerprint());
     }
 }

@@ -49,7 +49,10 @@ impl StorageState {
     ) -> Result<()> {
         let state = StorageState {
             schema_version: default_schema_version(),
-            entries: entries.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            entries: entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         };
         let json = serde_json::to_string_pretty(&state).map_err(|e| {
             DebuggerError::StorageError(format!("Failed to serialize storage state: {}", e))
@@ -172,7 +175,10 @@ impl StorageFilter {
 
 impl StorageQuery {
     pub fn normalized_filter(&self) -> Option<&str> {
-        self.filter.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        self.filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
 
     pub fn normalized_jump(&self) -> Option<&str> {
@@ -243,8 +249,9 @@ impl StorageInspector {
         let filtered_len = filtered_entries.len();
         let page_size = query.page_size_or_default();
         let total_pages = filtered_len.max(1).div_ceil(page_size);
-        let jump_match_index =
-            query.normalized_jump().and_then(|jump| Self::find_jump_index(&filtered_entries, jump));
+        let jump_match_index = query
+            .normalized_jump()
+            .and_then(|jump| Self::find_jump_index(&filtered_entries, jump));
         let page = jump_match_index
             .map(|idx| idx / page_size)
             .unwrap_or(query.page.min(total_pages.saturating_sub(1)));
