@@ -2046,9 +2046,50 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     }
 
     // Compare results
-    print_info("\n--- Comparison ---");
+    if args.format == OutputFormat::Pretty {
+        print_info("\n--- Comparison ---");
+    }
+
     let report = crate::compare::CompareEngine::compare(&truncated_original, &replayed_trace);
-    let rendered = crate::compare::CompareEngine::render_report(&report);
+    
+    let rendered = match args.format {
+        OutputFormat::Json => {
+            let mut matched_steps = 0;
+            let mut mismatched_steps = 0;
+            for line in &report.flow_diff.diff_lines {
+                match line {
+                    crate::compare::engine::DiffLine::Same(_) => matched_steps += 1,
+                    _ => mismatched_steps += 1,
+                }
+            }
+
+            let metadata = serde_json::json!({
+                "trace_file": args.trace_file.display().to_string(),
+                "contract_used": contract_path.display().to_string(),
+                "replay_until": args.replay_until,
+                "is_partial_replay": is_partial_replay,
+                "flow_stats": {
+                    "matched_steps": matched_steps,
+                    "mismatched_steps": mismatched_steps,
+                    "skipped_steps": original_trace.call_sequence.len().saturating_sub(truncated_original.call_sequence.len()),
+                }
+            });
+            
+            let mut report_value = serde_json::to_value(&report).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize comparison report: {}", e))
+            })?;
+            
+            if let Some(obj) = report_value.as_object_mut() {
+                obj.insert("replay_metadata".to_string(), metadata);
+            }
+
+            let envelope = crate::output::VersionedOutput::success("replay", &report_value);
+            serde_json::to_string_pretty(&envelope).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize replay JSON output: {}", e))
+            })?
+        }
+        OutputFormat::Pretty => crate::compare::CompareEngine::render_report(&report),
+    };
 
     if let Some(output_path) = &args.output {
         std::fs::write(output_path, &rendered).map_err(|e| {
@@ -2059,7 +2100,11 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
         })?;
         print_success(format!("\nReplay report written to: {:?}", output_path));
     } else {
-        logging::log_display(rendered, logging::LogLevel::Info);
+        if args.format == OutputFormat::Json {
+            println!("{}", rendered);
+        } else {
+            logging::log_display(rendered, logging::LogLevel::Info);
+        }
     }
 
     if verbosity == Verbosity::Verbose {

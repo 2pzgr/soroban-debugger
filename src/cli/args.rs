@@ -1036,6 +1036,24 @@ mod tests {
         assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
         assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
     }
+
+    #[test]
+    fn replay_accepts_format_flag() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "replay",
+            "trace.json",
+            "--format",
+            "json",
+        ]);
+
+        let Commands::Replay(args) = cli.command.expect("replay command expected") else {
+            panic!("replay command expected");
+        };
+
+        assert_eq!(args.format, OutputFormat::Json);
+        assert_eq!(args.trace_file.to_str().unwrap(), "trace.json");
+    }
 }
 }
 
@@ -1241,6 +1259,10 @@ pub struct ReplayArgs {
     /// Show verbose output during replay
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Output format for the diff report (pretty or json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 }
 
 #[derive(Parser)]
