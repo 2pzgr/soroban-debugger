@@ -1,6 +1,6 @@
 use crate::debugger::engine::DebuggerEngine;
-use crate::inspector::{StorageInspector, storage::StorageQuery};
 use crate::inspector::BudgetInspector;
+use crate::inspector::{storage::StorageQuery, StorageInspector};
 use crate::Result;
 use std::io::{self, Write};
 
@@ -227,7 +227,7 @@ impl DebuggerUI {
                             .map(|c| format!(" (if {:?})", c))
                             .unwrap_or_default();
                         crate::logging::log_display(
-                            format!("- {}{}", bp.function, cond_str),
+                            format!("- {}{} hits={}", bp.function, cond_str, bp.hit_count),
                             crate::logging::LogLevel::Info,
                         );
                     }
@@ -402,7 +402,7 @@ impl DebuggerUI {
 
     fn print_help(&self) {
         let kb = &self.config.keybindings;
-        
+
         crate::logging::log_display(
             "Interactive debugger commands:",
             crate::logging::LogLevel::Info,
@@ -444,7 +444,7 @@ impl DebuggerUI {
             crate::logging::LogLevel::Info,
         );
         crate::logging::log_display(
-            "  list-breaks        List breakpoints",
+            "  list-breaks        List breakpoints with hit counts",
             crate::logging::LogLevel::Info,
         );
         crate::logging::log_display(
@@ -466,7 +466,10 @@ impl DebuggerUI {
     }
 
     fn show_palette(&mut self) -> Result<()> {
-        crate::logging::log_display("Command palette not yet implemented in this view", crate::logging::LogLevel::Warn);
+        crate::logging::log_display(
+            "Command palette not yet implemented in this view",
+            crate::logging::LogLevel::Warn,
+        );
         Ok(())
     }
 }

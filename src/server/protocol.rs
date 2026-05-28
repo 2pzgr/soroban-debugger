@@ -146,6 +146,8 @@ pub struct BreakpointDescriptor {
     pub condition: Option<String>,
     pub hit_condition: Option<String>,
     pub log_message: Option<String>,
+    #[serde(default)]
+    pub hit_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -269,9 +271,7 @@ pub enum DebugRequest {
 
     /// Reconnect to an existing session after a transient disconnect.
     /// The client provides the session_id it received from a previous HandshakeAck.
-    Reconnect {
-        session_id: String,
-    },
+    Reconnect { session_id: String },
 
     /// Catch-all for forward compatibility
     #[serde(other)]
@@ -378,9 +378,7 @@ pub enum DebugResponse {
     },
 
     /// Reconnection failed because the session has expired or been purged.
-    SessionExpired {
-        message: String,
-    },
+    SessionExpired { message: String },
 
     /// Inspection result
     InspectionResult {
@@ -617,5 +615,21 @@ mod tests {
         }"#;
         let event: DynamicTraceEvent = serde_json::from_str(json).unwrap();
         assert_eq!(event.call_depth, Some(5));
+    }
+
+    #[test]
+    fn breakpoint_descriptor_serializes_hit_count() {
+        let descriptor = BreakpointDescriptor {
+            id: "bp-1".to_string(),
+            function: "transfer".to_string(),
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+            hit_count: 3,
+        };
+
+        let value = serde_json::to_value(descriptor).unwrap();
+
+        assert_eq!(value["hit_count"], 3);
     }
 }

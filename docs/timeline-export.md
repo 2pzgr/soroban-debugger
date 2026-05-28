@@ -36,7 +36,7 @@ The artifact is JSON with a small, versioned schema:
 - `schema_version`: Format version for forwards-compatible parsing.
 - `created_at`: RFC3339 UTC timestamp of when the file was produced.
 - `run`: Basic run metadata (contract path, function, args JSON, result/error, budget, events count).
-- `pauses`: Best-effort pause points (currently includes entry breakpoint hits in `run`).
+- `pauses`: Best-effort pause points (currently includes entry breakpoint hits in `run`, with `breakpoint_id` and `hit_count` when available).
 - `stack_summary`: Best-effort end-of-run call stack summary.
 - `deltas.storage`: Storage diff summary (added/modified/deleted keys, alerts, and truncation marker).
 - `warnings`: Warnings emitted during narrative construction (e.g. triggered storage alerts).

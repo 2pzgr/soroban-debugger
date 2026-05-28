@@ -119,7 +119,7 @@ impl ReplSession {
     pub fn new(config: ReplConfig) -> Result<Self> {
         let global_config = crate::config::Config::load_or_default();
         let save_history = global_config.repl_settings.save_history.unwrap_or(true);
-        
+
         let history_path = if let Some(path) = global_config.repl_settings.history_file {
             PathBuf::from(path)
         } else {
@@ -286,7 +286,7 @@ impl ReplSession {
                             .condition
                             .map(|c| format!(" (if {:?})", c))
                             .unwrap_or_default();
-                        tracing::info!("  - {}{}", bp.function, cond);
+                        tracing::info!("  - {}{} hits={}", bp.function, cond, bp.hit_count);
                     }
                 }
                 Ok(false)
@@ -310,7 +310,10 @@ impl ReplSession {
                 Ok(false)
             }
             ReplCommand::Palette => {
-                tracing::info!("{}", Formatter::info("Command palette opened. Type an action to run:"));
+                tracing::info!(
+                    "{}",
+                    Formatter::info("Command palette opened. Type an action to run:")
+                );
                 tracing::info!("  export-trace");
                 tracing::info!("  add-breakpoint");
                 tracing::info!("  diagnostics");
@@ -358,7 +361,7 @@ impl ReplSession {
             Formatter::info("break")
         );
         tracing::info!(
-            "  {}                 List all active breakpoints",
+            "  {}                 List all active breakpoints with hit counts",
             Formatter::info("list-breaks")
         );
         tracing::info!(

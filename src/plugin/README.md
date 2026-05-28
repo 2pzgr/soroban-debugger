@@ -124,7 +124,7 @@ Plugins can hook into these events:
 
 - `BeforeFunctionCall` / `AfterFunctionCall`
 - `BeforeInstruction` / `AfterInstruction`
-- `BreakpointHit`
+- `BreakpointHit` (includes the breakpoint hit count)
 - `ExecutionPaused` / `ExecutionResumed`
 - `StorageAccess`
 - `DiagnosticEvent`

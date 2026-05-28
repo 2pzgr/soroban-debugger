@@ -1051,9 +1051,12 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         let mut pauses = Vec::new();
         let hit_entry_breakpoint = args.breakpoint.iter().any(|bp| bp == function);
         if engine.is_paused() && hit_entry_breakpoint {
+            let breakpoint = engine.breakpoints().get_breakpoint(function);
             pauses.push(TimelinePausePoint {
                 index: 0,
                 reason: "breakpoint".to_string(),
+                breakpoint_id: breakpoint.map(|bp| bp.id.clone()),
+                hit_count: breakpoint.map(|bp| bp.hit_count),
                 location: None,
                 call_stack: stack_summary.clone(),
             });

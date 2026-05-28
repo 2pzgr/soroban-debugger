@@ -27,7 +27,7 @@ pub enum ReplCommand {
         function: String,
         condition: Option<String>,
     },
-    /// List breakpoints: list-breaks
+    /// List breakpoints and hit counts: list-breaks
     ListBreaks,
     /// Clear a breakpoint: clear-break <function>
     ClearBreak {
@@ -62,8 +62,10 @@ impl ReplCommand {
         match self {
             ReplCommand::Call { args, .. } => args.iter().any(|arg| {
                 let lower = arg.to_lowercase();
-                lower.contains("secret") || lower.contains("token") 
-                    || lower.contains("key") || lower.contains("password")
+                lower.contains("secret")
+                    || lower.contains("token")
+                    || lower.contains("key")
+                    || lower.contains("password")
             }),
             _ => false,
         }

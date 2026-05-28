@@ -28,6 +28,8 @@ pub enum ExecutionEvent {
     BreakpointHit {
         function: String,
         condition: Option<String>,
+        #[serde(default)]
+        hit_count: u64,
     },
 
     /// Fired when execution is paused

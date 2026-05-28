@@ -1,5 +1,4 @@
-use crate::debugger::breakpoint::{BreakpointManager, BreakpointSpec};
-use crate::debugger::breakpoint::ConditionEvaluator;
+use crate::debugger::breakpoint::{BreakpointManager, BreakpointSpec, ConditionEvaluator};
 use crate::debugger::instruction_pointer::StepMode;
 use crate::debugger::source_map::{SourceLocation, SourceMap};
 use crate::debugger::state::{DebugState, PauseReason};
@@ -33,11 +32,17 @@ pub struct DebuggerEngine {
 
 struct EngineConditionEvaluator {
     storage: HashMap<String, String>,
+    function: String,
+    args: Option<String>,
 }
 
 impl EngineConditionEvaluator {
-    fn new(storage: HashMap<String, String>) -> Self {
-        Self { storage }
+    fn new(storage: HashMap<String, String>, function: &str, args: Option<&str>) -> Self {
+        Self {
+            storage,
+            function: function.to_string(),
+            args: args.map(str::to_string),
+        }
     }
 
     fn parse_condition<'a>(
@@ -118,6 +123,11 @@ impl ConditionEvaluator for EngineConditionEvaluator {
         let mut rendered = template.to_string();
         for (key, value) in &self.storage {
             rendered = rendered.replace(&format!("{{{}}}", key), value);
+        }
+        rendered = rendered.replace("{function}", &self.function);
+        if let Some(args) = &self.args {
+            rendered = rendered.replace("{args}", args);
+            rendered = rendered.replace("{arguments}", args);
         }
         Ok(rendered)
     }
@@ -292,33 +302,14 @@ impl DebuggerEngine {
         );
 
         if check_breakpoints {
-            let evaluator = self.create_condition_evaluator();
-            match self.breakpoints.should_break_with_context(function, evaluator.as_ref()) {
-                Ok((should_pause, log_message)) => {
-                    if let Some(msg) = log_message {
-                        // Log point hit - output message but don't pause
-                        crate::logging::log_breakpoint_log(function, &msg);
-                        println!("[LOG @{}] {}", function, msg);
-                    }
-                    if should_pause {
-                        let condition = self
-                            .breakpoints
-                            .get_breakpoint(function)
-                            .and_then(|bp| bp.condition.clone());
-                        self.pause_at_function(function, condition);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Breakpoint evaluation failed: {}", e);
-                }
-            }
             let storage = self.executor.get_storage_snapshot().unwrap_or_default();
-            let evaluator = EngineConditionEvaluator::new(storage);
+            let evaluator = EngineConditionEvaluator::new(storage, function, args);
             let (should_pause, log_output) = self
                 .breakpoints_mut()
                 .should_break_with_context(function, &evaluator)?;
 
             if let Some(message) = log_output {
+                crate::logging::log_breakpoint_log(function, &message);
                 println!("{message}");
             }
 
@@ -398,11 +389,17 @@ impl DebuggerEngine {
             .breakpoints
             .get_breakpoint(function)
             .and_then(|bp| bp.condition.as_ref().map(|c| format!("{:?}", c)));
+        let hit_count = self
+            .breakpoints
+            .get_breakpoint(function)
+            .map(|bp| bp.hit_count)
+            .unwrap_or(0);
 
         crate::plugin::registry::dispatch_global_event(
             &ExecutionEvent::BreakpointHit {
                 function: function.to_string(),
                 condition,
+                hit_count,
             },
             &mut plugin_ctx,
         );
@@ -685,6 +682,11 @@ impl DebuggerEngine {
             &ExecutionEvent::BreakpointHit {
                 function: function.to_string(),
                 condition,
+                hit_count: self
+                    .breakpoints
+                    .get_breakpoint(function)
+                    .map(|bp| bp.hit_count)
+                    .unwrap_or(0),
             },
             &mut plugin_ctx,
         );
@@ -697,7 +699,10 @@ impl DebuggerEngine {
     }
 
     pub fn pause_reason(&self) -> Option<PauseReason> {
-        self.state.lock().ok().and_then(|state| state.pause_reason())
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.pause_reason())
     }
 
     pub fn pause_reason_label(&self) -> Option<&'static str> {
@@ -756,51 +761,6 @@ impl DebuggerEngine {
             state.increment_step();
         }
         Ok(())
-    }
-
-    /// Create a condition evaluator for breakpoint evaluation
-    fn create_condition_evaluator(&self) -> Box<dyn crate::debugger::breakpoint::ConditionEvaluator> {
-        Box::new(DebugStateEvaluator {
-            state: Arc::clone(&self.state),
-        })
-    }
-}
-
-/// Evaluates breakpoint conditions by reading from debug state
-struct DebugStateEvaluator {
-    state: Arc<Mutex<DebugState>>,
-}
-
-impl crate::debugger::breakpoint::ConditionEvaluator for DebugStateEvaluator {
-    fn evaluate(&self, condition: &str) -> crate::Result<bool> {
-        // Simple evaluation - can be enhanced later with full expression parsing
-        // For now, return true to not block execution
-        tracing::debug!("Evaluating condition: {}", condition);
-        Ok(true)
-    }
-
-    fn interpolate_log(&self, template: &str) -> crate::Result<String> {
-        // Extract function name and args from state and interpolate
-        if let Ok(state) = self.state.lock() {
-            let mut result = template.to_string();
-
-            // Interpolate {function} placeholder
-            if let Some(func) = state.current_function() {
-                result = result.replace("{function}", func);
-            }
-
-            // Interpolate {args} placeholder
-            if let Some(args) = state.current_args() {
-                result = result.replace("{args}", args);
-            }
-
-            // Interpolate {step_count} placeholder
-            result = result.replace("{step_count}", &state.step_count().to_string());
-
-            Ok(result)
-        } else {
-            Ok(template.to_string())
-        }
     }
 }
 
