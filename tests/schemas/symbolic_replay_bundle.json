@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Soroban Debugger Symbolic Replay Bundle",
+  "description": "JSON schema for symbolic replay bundles exported from the soroban-debug symbolic analyzer. This bundle captures the configuration and metadata needed to reproduce a symbolic execution run.",
+  "type": "object",
+  "required": ["schema_version", "command", "contract", "invocation", "config"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "The version of this schema. Current version is 1. Used to track compatibility and allow evolution of the bundle format.",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "command": {
+      "type": "string",
+      "description": "The command that generated this bundle. Always 'symbolic' for replay bundles.",
+      "enum": ["symbolic"]
+    },
+    "contract": {
+      "type": "object",
+      "description": "Information about the contract being analyzed.",
+      "required": ["sha256"],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "description": "SHA-256 hash of the contract WASM file. Used to verify that the bundle applies to the correct contract.",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "path_hint": {
+          "type": ["string", "null"],
+          "description": "Optional file path hint for locating the original contract WASM file. Not authoritative; use sha256 for verification."
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "description": "Information about the function being analyzed.",
+      "required": ["function"],
+      "properties": {
+        "function": {
+          "type": "string",
+          "description": "Name of the exported contract function that was analyzed."
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Symbolic exploration configuration. All fields are optional and default to the balanced profile when omitted.",
+      "properties": {
+        "seed": {
+          "type": ["integer", "null"],
+          "description": "Seed used to shuffle input combinations during exploration. When provided, ensures deterministic and reproducible runs. Passing this value to --replay or --seed reproduces the identical exploration order.",
+          "minimum": 0
+        },
+        "max_paths": {
+          "type": ["integer", "null"],
+          "description": "Maximum number of distinct execution paths to record. Exploration stops when this limit is reached.",
+          "minimum": 1
+        },
+        "max_input_combinations": {
+          "type": ["integer", "null"],
+          "description": "Maximum number of input combinations to generate deterministically before exploration begins.",
+          "minimum": 1
+        },
+        "max_breadth": {
+          "type": ["integer", "null"],
+          "description": "Legacy alias for controlling generated-value branching width. Preserved for backward compatibility.",
+          "minimum": 1
+        },
+        "max_depth": {
+          "type": ["integer", "null"],
+          "description": "Maximum recursion depth for symbolic exploration.",
+          "minimum": 1
+        },
+        "timeout_secs": {
+          "type": ["integer", "null"],
+          "description": "Timeout in seconds for the entire symbolic exploration. Exploration stops when this limit is reached.",
+          "minimum": 0
+        }
+      }
+    },
+    "storage_seed": {
+      "type": ["object", "null"],
+      "description": "Optional initial storage state to seed the symbolic exploration. Allows testing how different storage states affect contract behavior.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "Format of the storage seed data. Currently only 'json' is supported.",
+          "enum": ["json"]
+        },
+        "data": {
+          "type": "string",
+          "description": "Storage seed data as a JSON string. Should be a valid JSON object representing the key-value storage state."
+        }
+      },
+      "required": ["format", "data"]
+    },
+    "metadata": {
+      "type": ["object", "null"],
+      "description": "Optional metadata about the execution results.",
+      "properties": {
+        "paths_explored": {
+          "type": "integer",
+          "description": "Number of distinct execution paths discovered.",
+          "minimum": 0
+        },
+        "panics_found": {
+          "type": "integer",
+          "description": "Number of execution paths that resulted in panics.",
+          "minimum": 0
+        }
+      },
+      "required": ["paths_explored", "panics_found"]
+    }
+  }
+}

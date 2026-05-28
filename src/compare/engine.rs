@@ -3,6 +3,7 @@
 //! execution flow differences.
 
 use super::trace::{BudgetTrace, CallEntry, EventEntry, ExecutionTrace};
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 // ─── Diff types ──────────────────────────────────────────────────────
@@ -12,11 +13,18 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct ComparisonReport {
     pub label_a: String,
     pub label_b: String,
+    pub filters: CompareFiltersReport,
     pub storage_diff: StorageDiff,
     pub budget_diff: BudgetDiff,
     pub return_value_diff: ReturnValueDiff,
     pub flow_diff: FlowDiff,
     pub event_diff: EventDiff,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CompareFiltersReport {
+    pub ignore_paths: Vec<String>,
+    pub ignore_fields: Vec<String>,
 }
 
 /// Storage key-level differences.
@@ -89,18 +97,22 @@ pub enum DiffLine {
 pub struct CompareFilters {
     ignore_paths: Vec<Vec<String>>,
     ignore_fields: BTreeSet<String>,
+    pub raw_ignore_paths: Vec<String>,
+    pub raw_ignore_fields: Vec<String>,
 }
 
 impl CompareFilters {
     pub fn new(ignore_paths: Vec<String>, ignore_fields: Vec<String>) -> crate::Result<Self> {
         let mut parsed_paths = Vec::with_capacity(ignore_paths.len());
-        for path in ignore_paths {
-            parsed_paths.push(Self::parse_path(&path)?);
+        for path in &ignore_paths {
+            parsed_paths.push(Self::parse_path(path)?);
         }
 
         Ok(Self {
             ignore_paths: parsed_paths,
-            ignore_fields: ignore_fields.into_iter().collect(),
+            ignore_fields: ignore_fields.iter().cloned().collect(),
+            raw_ignore_paths: ignore_paths,
+            raw_ignore_fields: ignore_fields,
         })
     }
 
@@ -171,6 +183,10 @@ impl CompareEngine {
         ComparisonReport {
             label_a,
             label_b,
+            filters: CompareFiltersReport {
+                ignore_paths: filters.raw_ignore_paths.clone(),
+                ignore_fields: filters.raw_ignore_fields.clone(),
+            },
             storage_diff: Self::diff_storage(&trace_a.storage, &trace_b.storage, filters),
             budget_diff: Self::diff_budget(&trace_a.budget, &trace_b.budget, filters),
             return_value_diff: Self::diff_return_value(
@@ -954,5 +970,21 @@ mod tests {
 
         assert!(report.flow_diff.identical);
         assert_eq!(report.flow_diff.filtered_a_calls, vec!["transfer()"]);
+    }
+
+    #[test]
+    fn test_report_json_serialization() {
+        let a = make_trace_a();
+        let b = make_trace_b();
+        let filters = filters(&["/storage/fee_pool"], &["timestamp"]);
+        let report = CompareEngine::compare_with_filters(&a, &b, &filters);
+
+        let json = serde_json::to_string(&report).expect("should serialize to JSON");
+        assert!(json.contains("\"balance:Bob\""));
+        assert!(json.contains("\"/storage/fee_pool\""));
+        assert!(json.contains("\"timestamp\""));
+        assert!(json.contains("\"only_in_b\""));
+        assert!(json.contains("\"ignore_paths\""));
+        assert!(json.contains("\"ignore_fields\""));
     }
 }
