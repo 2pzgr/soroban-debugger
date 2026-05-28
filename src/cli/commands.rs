@@ -517,7 +517,7 @@ fn run_batch(args: &RunArgs, batch_file: &std::path::Path) -> Result<()> {
             "summary": summary,
         });
         logging::log_display(
-            serde_json::to_string_pretty(&output).map_err(|e| {
+            crate::output::to_json_string(&output).map_err(|e| {
                 DebuggerError::FileError(format!("Failed to serialize output: {}", e))
             })?,
             logging::LogLevel::Info,
@@ -576,6 +576,7 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
                 retry_attempts: 3,
                 retry_base_delay_ms: 200,
                 retry_max_delay_ms: 2000,
+                format: if args.is_json_output() { crate::cli::args::OutputFormat::Json } else { crate::cli::args::OutputFormat::Pretty },
                 action: None,
             },
             verbosity,
@@ -966,14 +967,14 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
 
         let output = crate::output::VersionedOutput::success("run", result_obj);
 
-        match serde_json::to_string_pretty(&output) {
+        match crate::output::to_json_string(&output) {
             Ok(json) => println!("{}", json),
             Err(e) => {
                 let err_output = crate::output::VersionedOutput::<serde_json::Value>::error(
                     "run",
                     format!("Failed to serialize output: {}", e),
                 );
-                if let Ok(err_json) = serde_json::to_string_pretty(&err_output) {
+                if let Ok(err_json) = crate::output::to_json_string(&err_output) {
                     println!("{}", err_json);
                 }
             }
@@ -1397,7 +1398,7 @@ pub fn upgrade_check(args: UpgradeCheckArgs) -> Result<()> {
     let output = match args.output.as_str() {
         "json" => {
             let envelope = crate::output::VersionedOutput::success("upgrade-check", &report);
-            serde_json::to_string_pretty(&envelope)
+            crate::output::to_json_string(&envelope)
                 .map_err(|e| miette::miette!("Failed to serialize report: {}", e))?
         }
         _ => format_text_report(&report),
@@ -1758,7 +1759,7 @@ pub fn optimize(args: OptimizeArgs, _verbosity: Verbosity) -> Result<()> {
                     })
                     .collect(),
             };
-            serde_json::to_string_pretty(&view).map_err(|e| {
+            crate::output::to_json_string(&view).map_err(|e| {
                 DebuggerError::FileError(format!(
                     "Failed to serialize optimization report as JSON: {}",
                     e
@@ -1855,7 +1856,7 @@ pub fn profile(args: ProfileArgs) -> Result<()> {
         crate::cli::args::ProfileExportFormat::Json => {
             // Export as JSON with basic metrics
             let func_names: Vec<String> = report.functions.iter().map(|f| f.name.clone()).collect();
-            serde_json::to_string_pretty(&serde_json::json!({
+            crate::output::to_json_string(&serde_json::json!({
                 "contract": contract_path_str,
                 "functions": func_names,
                 "total_cpu": report.total_cpu,
@@ -1930,7 +1931,10 @@ pub fn compare(args: CompareArgs) -> Result<()> {
 /// Execute the replay command.
 /// Execute the replay command.
 pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
-    print_info(format!("Loading trace file: {:?}", args.trace_file));
+    let is_json = args.format == crate::cli::args::OutputFormat::Json;
+    if !is_json {
+        print_info(format!("Loading trace file: {:?}", args.trace_file));
+    }
     // Fail fast on malformed or unsupported-schema-version traces (#1288).
     let raw_trace: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&args.trace_file).map_err(|e| {
@@ -1960,7 +1964,9 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
         .into());
     };
 
-    print_info(format!("Loading contract: {:?}", contract_path));
+    if !is_json {
+        print_info(format!("Loading contract: {:?}", contract_path));
+    }
     let wasm_bytes = fs::read(&contract_path).map_err(|e| {
         DebuggerError::WasmLoadError(format!(
             "Failed to read WASM file at {:?}: {}",
@@ -1968,10 +1974,12 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
         ))
     })?;
 
-    print_success(format!(
-        "Contract loaded successfully ({} bytes)",
-        wasm_bytes.len()
-    ));
+    if !is_json {
+        print_success(format!(
+            "Contract loaded successfully ({} bytes)",
+            wasm_bytes.len()
+        ));
+    }
 
     // Extract function and args from trace
     let function = original_trace.function.as_ref().ok_or_else(|| {
@@ -1984,15 +1992,17 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     let replay_steps = args.replay_until.unwrap_or(usize::MAX);
     let is_partial_replay = args.replay_until.is_some();
 
-    if is_partial_replay {
-        print_info(format!("Replaying up to step {}", replay_steps));
-    } else {
-        print_info("Replaying full execution");
-    }
+    if !is_json {
+        if is_partial_replay {
+            print_info(format!("Replaying up to step {}", replay_steps));
+        } else {
+            print_info("Replaying full execution");
+        }
 
-    print_info(format!("Function: {}", function));
-    if let Some(a) = args_str {
-        print_info(format!("Arguments: {}", a));
+        print_info(format!("Function: {}", function));
+        if let Some(a) = args_str {
+            print_info(format!("Arguments: {}", a));
+        }
     }
 
     // Set up initial storage from trace
@@ -2006,7 +2016,9 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     };
 
     // Execute the contract
-    print_info("\n--- Replaying Execution ---\n");
+    if !is_json {
+        print_info("\n--- Replaying Execution ---\n");
+    }
     let mut executor = ContractExecutor::new(wasm_bytes)?;
 
     if let Some(storage) = initial_storage {
@@ -2018,8 +2030,10 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     logging::log_execution_start(function, args_str);
     let replayed_result = engine.execute(function, args_str)?;
 
-    print_success("\n--- Replay Complete ---\n");
-    print_success(format!("Replayed Result: {:?}", replayed_result));
+    if !is_json {
+        print_success("\n--- Replay Complete ---\n");
+        print_success(format!("Replayed Result: {:?}", replayed_result));
+    }
     logging::log_execution_complete(&replayed_result);
 
     // Build execution trace from the replay
@@ -2046,23 +2060,45 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     }
 
     // Compare results
-    print_info("\n--- Comparison ---");
+    if !is_json {
+        print_info("\n--- Comparison ---");
+    }
     let report = crate::compare::CompareEngine::compare(&truncated_original, &replayed_trace);
-    let rendered = crate::compare::CompareEngine::render_report(&report);
 
-    if let Some(output_path) = &args.output {
-        std::fs::write(output_path, &rendered).map_err(|e| {
-            DebuggerError::FileError(format!(
-                "Failed to write report to {:?}: {}",
-                output_path, e
-            ))
+    if is_json {
+        let envelope = crate::output::VersionedOutput::success("replay", &report);
+        let rendered = crate::output::to_json_string(&envelope).map_err(|e| {
+            DebuggerError::FileError(format!("Failed to serialize replay report: {}", e))
         })?;
-        print_success(format!("\nReplay report written to: {:?}", output_path));
+
+        if let Some(output_path) = &args.output {
+            std::fs::write(output_path, &rendered).map_err(|e| {
+                DebuggerError::FileError(format!(
+                    "Failed to write report to {:?}: {}",
+                    output_path, e
+                ))
+            })?;
+            print_success(format!("\nReplay report written to: {:?}", output_path));
+        } else {
+            println!("{}", rendered);
+        }
     } else {
-        logging::log_display(rendered, logging::LogLevel::Info);
+        let rendered = crate::compare::CompareEngine::render_report(&report);
+
+        if let Some(output_path) = &args.output {
+            std::fs::write(output_path, &rendered).map_err(|e| {
+                DebuggerError::FileError(format!(
+                    "Failed to write report to {:?}: {}",
+                    output_path, e
+                ))
+            })?;
+            print_success(format!("\nReplay report written to: {:?}", output_path));
+        } else {
+            logging::log_display(rendered, logging::LogLevel::Info);
+        }
     }
 
-    if verbosity == Verbosity::Verbose {
+    if !is_json && verbosity == Verbosity::Verbose {
         print_verbose("\n--- Call Sequence (Original) ---");
         for (i, call) in original_trace.call_sequence.iter().enumerate() {
             let indent = "  ".repeat(call.depth as usize);
@@ -2127,7 +2163,11 @@ pub fn server(args: ServerArgs) -> Result<()> {
 
 /// Connect to remote debug server
 pub fn remote(args: RemoteArgs, _verbosity: Verbosity) -> Result<()> {
-    print_info(format!("Connecting to remote debugger at {}", args.remote));
+    let is_json = args.format == crate::cli::args::OutputFormat::Json;
+
+    if !is_json {
+        print_info(format!("Connecting to remote debugger at {}", args.remote));
+    }
 
     // Build per-request timeouts, falling back to the general --timeout-ms for
     // the specialised classes when the user did not set them explicitly.
@@ -2167,51 +2207,99 @@ pub fn remote(args: RemoteArgs, _verbosity: Verbosity) -> Result<()> {
             }
         })?;
 
-    if let Some(info) = client.session_info() {
-        print_info(format!(
-            "Remote session: {} (created {}, label={})",
-            info.session_id,
-            info.created_at,
-            info.label.as_deref().unwrap_or("<none>")
-        ));
+    if !is_json {
+        if let Some(info) = client.session_info() {
+            print_info(format!(
+                "Remote session: {} (created {}, label={})",
+                info.session_id,
+                info.created_at,
+                info.label.as_deref().unwrap_or("<none>")
+            ));
+        }
     }
 
     if let Some(contract) = &args.contract {
-        print_info(format!("Loading contract: {:?}", contract));
+        if !is_json {
+            print_info(format!("Loading contract: {:?}", contract));
+        }
         let size = client.load_contract(&contract.to_string_lossy())?;
-        print_success(format!("Contract loaded: {} bytes", size));
+        if !is_json {
+            print_success(format!("Contract loaded: {} bytes", size));
+        }
     }
 
     if let Some(action) = &args.action {
         return match action {
             RemoteAction::Inspect => {
                 let (function, step_count, paused, call_stack, pause_reason) = client.inspect()?;
-                println!("Function: {}", function.as_deref().unwrap_or("<none>"));
-                println!("Step count: {}", step_count);
-                println!("Paused: {}", paused);
-                if let Some(reason) = pause_reason {
-                    println!("Pause reason: {}", reason);
-                }
-                if !call_stack.is_empty() {
-                    println!("Call stack:");
-                    for frame in &call_stack {
-                        println!("  {}", frame);
+                if is_json {
+                    #[derive(serde::Serialize)]
+                    struct InspectJsonResult {
+                        function: Option<String>,
+                        step_count: u64,
+                        paused: bool,
+                        pause_reason: Option<String>,
+                        call_stack: Vec<String>,
+                    }
+                    let result = InspectJsonResult {
+                        function,
+                        step_count,
+                        paused,
+                        pause_reason,
+                        call_stack,
+                    };
+                    let envelope = crate::output::VersionedOutput::success("remote/inspect", result);
+                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
+                        DebuggerError::FileError(format!("Failed to serialize inspect JSON output: {}", e))
+                    })?);
+                } else {
+                    println!("Function: {}", function.as_deref().unwrap_or("<none>"));
+                    println!("Step count: {}", step_count);
+                    println!("Paused: {}", paused);
+                    if let Some(reason) = pause_reason {
+                        println!("Pause reason: {}", reason);
+                    }
+                    if !call_stack.is_empty() {
+                        println!("Call stack:");
+                        for frame in &call_stack {
+                            println!("  {}", frame);
+                        }
                     }
                 }
                 Ok(())
             }
             RemoteAction::Storage => {
                 let storage_json = client.get_storage()?;
-                println!("{}", storage_json);
+                if is_json {
+                    let parsed: serde_json::Value = serde_json::from_str(&storage_json).unwrap_or(serde_json::Value::Null);
+                    let envelope = crate::output::VersionedOutput::success("remote/storage", parsed);
+                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
+                        DebuggerError::FileError(format!("Failed to serialize storage JSON output: {}", e))
+                    })?);
+                } else {
+                    println!("{}", storage_json);
+                }
                 Ok(())
             }
             RemoteAction::Evaluate(eval_args) => {
                 let (result, result_type) =
                     client.evaluate(&eval_args.expression, eval_args.frame_id)?;
-                if let Some(rtype) = &result_type {
-                    println!("[{}] {}", rtype, result);
+                if is_json {
+                    #[derive(serde::Serialize)]
+                    struct EvaluateJsonResult {
+                        result: String,
+                        result_type: Option<String>,
+                    }
+                    let envelope = crate::output::VersionedOutput::success("remote/evaluate", EvaluateJsonResult { result, result_type });
+                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
+                        DebuggerError::FileError(format!("Failed to serialize evaluate JSON output: {}", e))
+                    })?);
                 } else {
-                    println!("{}", result);
+                    if let Some(rtype) = &result_type {
+                        println!("[{}] {}", rtype, result);
+                    } else {
+                        println!("{}", result);
+                    }
                 }
                 Ok(())
             }
@@ -2219,14 +2307,44 @@ pub fn remote(args: RemoteArgs, _verbosity: Verbosity) -> Result<()> {
     }
 
     if let Some(function) = &args.function {
-        print_info(format!("Executing function: {}", function));
-        let result = client.execute(function, args.args.as_deref())?;
-        print_success(format!("Result: {}", result));
+        if is_json {
+            let result = client.execute(function, args.args.as_deref())?;
+            #[derive(serde::Serialize)]
+            struct ExecuteJsonResult {
+                result: String,
+            }
+            let envelope = crate::output::VersionedOutput::success("remote/execute", ExecuteJsonResult { result });
+            println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize execute JSON output: {}", e))
+            })?);
+        } else {
+            print_info(format!("Executing function: {}", function));
+            let result = client.execute(function, args.args.as_deref())?;
+            print_success(format!("Result: {}", result));
+        }
         return Ok(());
     }
 
     client.ping()?;
-    print_success("Remote debugger is reachable");
+    if is_json {
+        #[derive(serde::Serialize)]
+        struct PingJsonResult {
+            reachable: bool,
+            message: String,
+        }
+        let envelope = crate::output::VersionedOutput::success(
+            "remote/ping",
+            PingJsonResult {
+                reachable: true,
+                message: "Remote debugger is reachable".to_string(),
+            },
+        );
+        println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
+            DebuggerError::FileError(format!("Failed to serialize ping JSON output: {}", e))
+        })?);
+    } else {
+        print_success("Remote debugger is reachable");
+    }
     Ok(())
 }
 /// Launch interactive debugger UI
@@ -2395,7 +2513,7 @@ pub fn inspect(args: InspectArgs, _verbosity: Verbosity) -> Result<()> {
         let envelope = crate::output::VersionedOutput::success("inspect", result);
         println!(
             "{}",
-            serde_json::to_string_pretty(&envelope).map_err(|e| {
+            crate::output::to_json_string(&envelope).map_err(|e| {
                 DebuggerError::FileError(format!("Failed to serialize inspect JSON output: {}", e))
             })?
         );
@@ -2499,7 +2617,7 @@ fn inspect_source_map_diagnostics(args: &InspectArgs, wasm_bytes: &[u8]) -> Resu
                 contract: args.contract.display().to_string(),
                 source_map: report,
             };
-            let pretty = serde_json::to_string_pretty(&output).map_err(|e| {
+            let pretty = crate::output::to_json_string(&output).map_err(|e| {
                 DebuggerError::ExecutionError(format!(
                     "Failed to serialize source-map diagnostics JSON output: {e}"
                 ))
@@ -2578,7 +2696,7 @@ pub fn symbolic(args: SymbolicArgs, _verbosity: Verbosity) -> Result<()> {
             let envelope = crate::output::VersionedOutput::success("symbolic", &report);
             println!(
                 "{}",
-                serde_json::to_string_pretty(&envelope).map_err(|e| {
+                crate::output::to_json_string(&envelope).map_err(|e| {
                     DebuggerError::FileError(format!("Failed to serialize symbolic report: {}", e))
                 })?
             );
@@ -2603,7 +2721,7 @@ pub fn symbolic(args: SymbolicArgs, _verbosity: Verbosity) -> Result<()> {
             wasm_file.sha256_hash.clone(),
             Some(args.contract.to_string_lossy().to_string()),
         );
-        let serialized = serde_json::to_string_pretty(&bundle).map_err(|e| {
+        let serialized = crate::output::to_json_string(&bundle).map_err(|e| {
             DebuggerError::FileError(format!("Failed to serialize replay bundle to JSON: {}", e))
         })?;
         fs::write(bundle_path, serialized).map_err(|e| {
@@ -2700,7 +2818,7 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
             let envelope = crate::output::VersionedOutput::success("analyze", &output);
             println!(
                 "{}",
-                serde_json::to_string_pretty(&envelope).map_err(|e| {
+                crate::output::to_json_string(&envelope).map_err(|e| {
                     DebuggerError::FileError(format!("Failed to serialize analysis output: {}", e))
                 })?
             );
@@ -3087,7 +3205,7 @@ pub fn doctor(args: crate::cli::args::DoctorArgs) -> Result<()> {
     };
 
     if args.format == OutputFormat::Json {
-        let json = serde_json::to_string_pretty(&report)
+        let json = crate::output::to_json_string(&report)
             .map_err(|e| miette::miette!("Failed to serialize doctor report: {}", e))?;
         println!("{}", json);
         return Ok(());

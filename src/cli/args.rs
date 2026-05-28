@@ -150,6 +150,10 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
+    /// Pretty-print JSON outputs instead of compact JSON
+    #[arg(long, global = true)]
+    pub pretty: bool,
+
     /// Show detailed version information
     #[arg(long)]
     pub version_verbose: bool,
@@ -1037,7 +1041,6 @@ mod tests {
         assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
     }
 }
-}
 
 #[derive(Parser)]
 pub struct CompareArgs {
@@ -1238,6 +1241,10 @@ pub struct ReplayArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// Output format for replay command (pretty, json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
+
     /// Show verbose output during replay
     #[arg(short, long)]
     pub verbose: bool,
@@ -1382,6 +1389,10 @@ pub struct RemoteArgs {
     /// Default: 2 000 ms.
     #[arg(long, value_name = "MS", default_value = "2000")]
     pub retry_max_delay_ms: u64,
+
+    /// Output format for remote command (pretty, json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 
     /// Remote operation to perform (default: execute or ping)
     #[command(subcommand)]
