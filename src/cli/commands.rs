@@ -507,14 +507,100 @@ fn display_instruction_info(engine: &DebuggerEngine) {
     }
 }
 
-/// Parse step mode from string
-fn parse_step_mode(mode: &str) -> StepMode {
-    match mode.to_lowercase().as_str() {
-        "into" => StepMode::StepInto,
-        "over" => StepMode::StepOver,
-        "out" => StepMode::StepOut,
-        "block" => StepMode::StepBlock,
-        _ => StepMode::StepInto, // Default
+/// Parse a step mode from its textual form. The single source of truth for
+/// step-mode parsing across the run and interactive flows (#1263). Unsupported
+/// modes return a clear error instead of silently defaulting, so a typo can't
+/// quietly change stepping behaviour.
+fn parse_step_mode(mode: &str) -> Result<StepMode> {
+    match mode.trim().to_lowercase().as_str() {
+        "into" | "i" => Ok(StepMode::StepInto),
+        "over" | "o" => Ok(StepMode::StepOver),
+        "out" | "u" => Ok(StepMode::StepOut),
+        "block" | "b" => Ok(StepMode::StepBlock),
+        other => Err(crate::DebuggerError::InvalidArguments(format!(
+            "unsupported step mode '{other}'. Supported modes: into, over, out, block."
+        ))
+        .into()),
+    }
+}
+
+/// Recommended/required minimum length for a remote debug auth token (#1262).
+const MIN_REMOTE_TOKEN_LEN: usize = 16;
+
+/// Outcome of the remote-debug token-strength policy (#1262).
+#[derive(Debug, PartialEq, Eq)]
+enum TokenPolicy {
+    Ok,
+    Warn(String),
+    Reject(String),
+}
+
+/// Evaluate the token-strength policy for the remote debug server (#1262).
+/// A token shorter than [`MIN_REMOTE_TOKEN_LEN`] warns by default, or is
+/// rejected when `require_strong` is set. No token is allowed (auth disabled).
+fn evaluate_token_policy(token: Option<&str>, require_strong: bool) -> TokenPolicy {
+    match token {
+        None => TokenPolicy::Ok,
+        Some(t) if t.trim().len() >= MIN_REMOTE_TOKEN_LEN => TokenPolicy::Ok,
+        Some(_) => {
+            let msg = format!(
+                "Remote debug token is shorter than {MIN_REMOTE_TOKEN_LEN} characters. \
+                 Prefer at least {MIN_REMOTE_TOKEN_LEN} characters, ideally a random 32-byte token."
+            );
+            if require_strong {
+                TokenPolicy::Reject(format!(
+                    "{msg} Refusing to start because --require-strong-token is set."
+                ))
+            } else {
+                TokenPolicy::Warn(msg)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod step_and_token_tests {
+    use super::*;
+    use crate::debugger::instruction_pointer::StepMode;
+
+    #[test]
+    fn parse_step_mode_accepts_supported_modes_and_aliases() {
+        assert_eq!(parse_step_mode("into").unwrap(), StepMode::StepInto);
+        assert_eq!(parse_step_mode("OVER").unwrap(), StepMode::StepOver);
+        assert_eq!(parse_step_mode(" out ").unwrap(), StepMode::StepOut);
+        assert_eq!(parse_step_mode("b").unwrap(), StepMode::StepBlock);
+    }
+
+    #[test]
+    fn parse_step_mode_rejects_unsupported_mode() {
+        let err = parse_step_mode("sideways").unwrap_err().to_string();
+        assert!(err.contains("unsupported step mode"), "got: {err}");
+        assert!(err.contains("sideways"), "got: {err}");
+    }
+
+    #[test]
+    fn token_policy_ok_when_absent_or_long_enough() {
+        assert_eq!(evaluate_token_policy(None, true), TokenPolicy::Ok);
+        assert_eq!(
+            evaluate_token_policy(Some("0123456789abcdef"), true),
+            TokenPolicy::Ok
+        );
+    }
+
+    #[test]
+    fn token_policy_warns_by_default_for_short_token() {
+        assert!(matches!(
+            evaluate_token_policy(Some("short"), false),
+            TokenPolicy::Warn(_)
+        ));
+    }
+
+    #[test]
+    fn token_policy_rejects_short_token_when_enforcement_enabled() {
+        assert!(matches!(
+            evaluate_token_policy(Some("short"), true),
+            TokenPolicy::Reject(_)
+        ));
     }
 }
 
@@ -625,6 +711,7 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
             host: args.host,
             port: args.port,
             token: args.token,
+            require_strong_token: false,
             tls_cert: args.tls_cert,
             tls_key: args.tls_key,
             repeat: args.repeat,
@@ -789,7 +876,7 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         engine.enable_instruction_debug(&wasm_bytes)?;
 
         if args.step_instructions {
-            let step_mode = parse_step_mode(&args.step_mode);
+            let step_mode = parse_step_mode(&args.step_mode)?;
             print_info(format!(
                 "Starting instruction stepping in '{}' mode",
                 args.step_mode
@@ -1136,8 +1223,25 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         };
 
         let mut pauses = Vec::new();
-        let hit_entry_breakpoint = args.breakpoint.iter().any(|bp| bp == function);
-        if engine.is_paused() && hit_entry_breakpoint {
+        // Record the actual classified pause reason (breakpoint / step_boundary /
+        // panic / end_of_execution / user_interrupt) from engine state rather than
+        // hardcoding "breakpoint" (#1264), so the exported timeline explains why
+        // execution paused.
+        let classified_reason = engine
+            .state()
+            .lock()
+            .ok()
+            .and_then(|s| s.pause_reason())
+            .map(|r| r.as_str().to_string());
+        if let Some(reason) = classified_reason {
+            pauses.push(TimelinePausePoint {
+                index: 0,
+                reason,
+                location: None,
+                call_stack: stack_summary.clone(),
+            });
+        } else if engine.is_paused() && args.breakpoint.iter().any(|bp| bp == function) {
+            // Paused at the entry breakpoint without a classified reason (prior behavior).
             pauses.push(TimelinePausePoint {
                 index: 0,
                 reason: "breakpoint".to_string(),
@@ -2203,16 +2307,19 @@ pub fn server(args: ServerArgs) -> Result<()> {
         "Starting remote debug server on {}:{}",
         args.host, args.port
     ));
-    if let Some(token) = &args.token {
+    if args.token.is_some() {
         print_info("Token authentication enabled");
-        if token.trim().len() < 16 {
-            print_warning(
-                "Remote debug token is shorter than 16 characters. Prefer at least 16 characters \
-                 and ideally a random 32-byte token.",
-            );
-        }
     } else {
         print_info("Token authentication disabled");
+    }
+    // #1262: apply the token-strength policy. Warn by default; reject startup when
+    // --require-strong-token is set and the token is too short.
+    match evaluate_token_policy(args.token.as_deref(), args.require_strong_token) {
+        TokenPolicy::Ok => {}
+        TokenPolicy::Warn(msg) => print_warning(&msg),
+        TokenPolicy::Reject(msg) => {
+            return Err(crate::DebuggerError::InvalidArguments(msg).into());
+        }
     }
     if args.tls_cert.is_some() || args.tls_key.is_some() {
         print_info("TLS enabled");
@@ -2497,7 +2604,7 @@ pub fn interactive(args: InteractiveArgs, _verbosity: Verbosity) -> Result<()> {
         engine.enable_instruction_debug(&wasm_bytes)?;
 
         if args.step_instructions {
-            let step_mode = parse_step_mode(&args.step_mode);
+            let step_mode = parse_step_mode(&args.step_mode)?;
             engine.start_instruction_stepping(step_mode)?;
         }
     }

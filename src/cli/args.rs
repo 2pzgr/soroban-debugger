@@ -1274,6 +1274,12 @@ pub struct ServerArgs {
     #[arg(short, long)]
     pub token: Option<String>,
 
+    /// Enforce the token-strength policy: reject startup if the auth token is
+    /// shorter than 16 characters instead of only warning. Recommended in
+    /// production; a random 32-byte token is ideal.
+    #[arg(long)]
+    pub require_strong_token: bool,
+
     /// TLS certificate file path (optional)
     #[arg(long)]
     pub tls_cert: Option<PathBuf>,
