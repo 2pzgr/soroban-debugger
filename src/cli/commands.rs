@@ -1247,6 +1247,7 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
                 reason: "breakpoint".to_string(),
                 location: None,
                 call_stack: stack_summary.clone(),
+                storage_mutation,
             });
         }
 
@@ -3454,6 +3455,16 @@ mod tests {
         };
 
         let json = serde_json::to_value(&report).unwrap();
+        assert!(json.get("binary").is_some());
+        assert!(json.get("config").is_some());
+        assert!(json.get("history").is_some());
+        assert!(json.get("plugins").is_some());
+        assert!(json.get("protocol").is_some());
+        assert!(json.get("vscode_extension").is_some());
+    }
+}
+//
+///////
         assert!(json.get("binary").is_some());
         assert!(json.get("config").is_some());
         assert!(json.get("history").is_some());
