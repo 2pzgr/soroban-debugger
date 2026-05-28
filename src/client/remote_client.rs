@@ -1042,8 +1042,73 @@ impl RemoteClient {
                 ));
             }
 
-            return Ok(response);
+            // #1258: tag server-side error responses with the request id so a
+            // CLI failure can be correlated with the matching server log line.
+            return Ok(tag_error_with_request_id(response, expected_id));
         }
+    }
+}
+
+/// Append the request id to a server error response so CLI failures can be
+/// correlated with server logs (#1258). The id is the client's per-connection
+/// request counter (not an internal server identifier) and is appended only
+/// when not already present, keeping non-error responses untouched.
+fn tag_error_with_request_id(response: DebugResponse, request_id: u64) -> DebugResponse {
+    if let DebugResponse::Error { message } = &response {
+        if !message.contains("request #") {
+            return DebugResponse::Error {
+                message: format!("{message} (request #{request_id})"),
+            };
+        }
+    }
+    response
+}
+
+#[cfg(test)]
+mod request_id_tests {
+    use super::tag_error_with_request_id;
+    use crate::server::protocol::DebugResponse;
+
+    #[test]
+    fn error_response_gains_request_id() {
+        let tagged = tag_error_with_request_id(
+            DebugResponse::Error {
+                message: "boom".to_string(),
+            },
+            42,
+        );
+        match tagged {
+            DebugResponse::Error { message } => {
+                assert!(message.contains("boom"), "original message preserved: {message}");
+                assert!(message.contains("request #42"), "request id appended: {message}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn request_id_not_duplicated() {
+        let once = tag_error_with_request_id(
+            DebugResponse::Error {
+                message: "boom".to_string(),
+            },
+            7,
+        );
+        let twice = tag_error_with_request_id(once, 9);
+        if let DebugResponse::Error { message } = twice {
+            assert_eq!(message.matches("request #").count(), 1, "no double-tag: {message}");
+            assert!(message.contains("request #7"), "keeps first id: {message}");
+        } else {
+            panic!("expected Error");
+        }
+    }
+
+    #[test]
+    fn non_error_response_untouched() {
+        assert!(matches!(
+            tag_error_with_request_id(DebugResponse::Pong, 1),
+            DebugResponse::Pong
+        ));
     }
 }
 

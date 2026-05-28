@@ -104,7 +104,7 @@ soroban-debug inspect --contract my_contract.wasm
 
 ## Argument Parsing
 
-### 14. My JSON arguments are failing to parse
+### 13. My JSON arguments are failing to parse
 **Cause:** Shell quoting issues are common. If your JSON contains double quotes, the shell might be stripping them.
 **Fix:** Wrap the entire JSON string in single quotes:
 ```bash

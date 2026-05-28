@@ -1,4 +1,4 @@
- .//! Output and accessibility configuration for screen-reader compatible CLI.
+//! Output and accessibility configuration for screen-reader compatible CLI.
 //!
 //! Supports `NO_COLOR` (disable ANSI colors) and `--no-unicode` (ASCII-only output).
 
@@ -8,6 +8,24 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static NO_UNICODE: AtomicBool = AtomicBool::new(false);
 static COLORS_ENABLED: AtomicBool = AtomicBool::new(true);
+static PRETTY_JSON: AtomicBool = AtomicBool::new(false);
+
+pub fn set_pretty_json(pretty: bool) {
+    PRETTY_JSON.store(pretty, Ordering::Relaxed);
+}
+
+pub fn is_pretty_json() -> bool {
+    PRETTY_JSON.load(Ordering::Relaxed)
+}
+
+pub fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    if is_pretty_json() {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
 pub const SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -86,9 +104,15 @@ impl DiagnosticRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputError {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -393,6 +417,9 @@ where
             result: None,
             error: Some(OutputError {
                 message: message.into(),
+                code: None,
+                category: None,
+                suggestion: None,
             }),
         }
     }
