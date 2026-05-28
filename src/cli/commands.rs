@@ -1058,11 +1058,22 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         let mut pauses = Vec::new();
         let hit_entry_breakpoint = args.breakpoint.iter().any(|bp| bp == function);
         if engine.is_paused() && hit_entry_breakpoint {
+            let storage_mutation = if storage_diff.is_empty() {
+                None
+            } else {
+                let mutated_keys = storage_diff.mutated_keys();
+                Some(crate::debugger::timeline::StorageMutationMarker {
+                    affected_key_count: mutated_keys.len(),
+                    mutated_keys,
+                })
+            };
+
             pauses.push(TimelinePausePoint {
                 index: 0,
                 reason: "breakpoint".to_string(),
                 location: None,
                 call_stack: stack_summary.clone(),
+                storage_mutation,
             });
         }
 
@@ -1910,7 +1921,15 @@ pub fn compare(args: CompareArgs) -> Result<()> {
         args.ignore_field.clone(),
     )?;
     let report = crate::compare::CompareEngine::compare_with_filters(&trace_a, &trace_b, &filters);
-    let rendered = crate::compare::CompareEngine::render_report(&report);
+    let rendered = match args.format {
+        OutputFormat::Json => {
+            let envelope = crate::output::VersionedOutput::success("compare", &report);
+            serde_json::to_string_pretty(&envelope).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize comparison report: {}", e))
+            })?
+        }
+        OutputFormat::Pretty => crate::compare::CompareEngine::render_report(&report),
+    };
 
     if let Some(output_path) = &args.output {
         fs::write(output_path, &rendered).map_err(|e| {
