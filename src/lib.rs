@@ -78,10 +78,10 @@ pub enum DebuggerError {
     )]
     StorageError(String),
 
-    #[error("WASM checksum mismatch.\n  Expected : {0}\n  Computed : {1}")]
+    #[error("WASM checksum mismatch (algorithm: sha256).\n  Expected (sha256): {0}\n  Computed (sha256): {1}")]
     #[diagnostic(
         code(debugger::checksum_mismatch),
-        help("Action: If you recompiled the contract, supply its new hash or run without the hash verification flag.\nContext: The provided file hash does not match expected remote or snapshot hash.")
+        help("Action: Hashes use SHA-256 (lower-case hex). If you recompiled the contract, supply its new sha256 hash or run without the hash verification flag.\nContext: The provided file hash does not match the expected remote or snapshot SHA-256 hash.")
     )]
     ChecksumMismatch(String, String),
 

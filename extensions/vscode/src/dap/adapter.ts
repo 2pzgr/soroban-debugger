@@ -392,14 +392,36 @@ export class SorobanDebugSession extends DebugSession {
     }
   }
 
+  // Default page size when the client doesn't supply args.levels. Keeps the
+  // default display compact while still allowing clients to request more.
+  private static readonly STACK_TRACE_DEFAULT_LEVELS = 50;
+  private static readonly STACK_TRACE_MAX_LEVELS = 500;
+
   protected async stackTraceRequest(
     response: DebugProtocol.StackTraceResponse,
     args: DebugProtocol.StackTraceArguments
   ): Promise<void> {
     const stackFrames = this.state.callStack || [];
+    const totalFrames = stackFrames.length;
+
+    const startFrame = Math.max(0, args.startFrame ?? 0);
+    const requestedLevels = args.levels ?? SorobanDebugSession.STACK_TRACE_DEFAULT_LEVELS;
+    // DAP: levels=0 means "all". Cap regardless so a deep stack can't
+    // produce a runaway response.
+    const effectiveLevels =
+      requestedLevels === 0
+        ? SorobanDebugSession.STACK_TRACE_MAX_LEVELS
+        : Math.min(requestedLevels, SorobanDebugSession.STACK_TRACE_MAX_LEVELS);
+
+    const endFrame = Math.min(totalFrames, startFrame + effectiveLevels);
+    const sliced = stackFrames.slice(startFrame, endFrame);
+    const omitted = totalFrames - sliced.length;
 
     response.body = {
-      stackFrames: stackFrames.slice(0, 50).map(frame => ({
+      // #1270: totalFrames lets the client render "showing N of M" instead of
+      // silently hiding frames past the page.
+      totalFrames,
+      stackFrames: sliced.map(frame => ({
         id: frame.id,
         name: frame.name,
         source: {
@@ -411,6 +433,16 @@ export class SorobanDebugSession extends DebugSession {
         instructionPointerReference: frame.instructionPointerReference
       }))
     };
+
+    if (omitted > 0) {
+      this.sendEvent(
+        new OutputEvent(
+          `Call stack truncated: showing ${sliced.length} of ${totalFrames} frames ` +
+            `(${omitted} omitted). Request more via stackTraceRequest{startFrame, levels}.\n`,
+          'console'
+        )
+      );
+    }
 
     this.sendResponse(response);
   }

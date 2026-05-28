@@ -8,6 +8,24 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static NO_UNICODE: AtomicBool = AtomicBool::new(false);
 static COLORS_ENABLED: AtomicBool = AtomicBool::new(true);
+static PRETTY_JSON: AtomicBool = AtomicBool::new(false);
+
+pub fn set_pretty_json(pretty: bool) {
+    PRETTY_JSON.store(pretty, Ordering::Relaxed);
+}
+
+pub fn is_pretty_json() -> bool {
+    PRETTY_JSON.load(Ordering::Relaxed)
+}
+
+pub fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    if is_pretty_json() {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
 pub const SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -42,6 +60,8 @@ pub struct DiagnosticRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub severity: DiagnosticSeverity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 impl DiagnosticRecord {
@@ -56,7 +76,13 @@ impl DiagnosticRecord {
             summary: summary.into(),
             detail,
             severity,
+            category: None,
         }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
     }
 
     pub fn display_line(&self) -> String {
@@ -78,9 +104,15 @@ impl DiagnosticRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputError {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -276,6 +308,17 @@ pub struct BatchExecutionResult {
     pub results: Vec<BatchResult>,
 }
 
+pub fn categorize_error(error: &str) -> &'static str {
+    let lower_err = error.to_lowercase();
+    if lower_err.contains("time") && lower_err.contains("out") {
+        "timeout"
+    } else if lower_err.contains("parser failure") || lower_err.contains("invalid arguments") {
+        "parser_failure"
+    } else {
+        "contract_failure"
+    }
+}
+
 pub fn collect_runtime_diagnostics(
     source_map_loaded: bool,
     budget: &crate::inspector::budget::BudgetInfo,
@@ -334,7 +377,7 @@ pub fn collect_runtime_diagnostics(
             "The most recent debugger action failed.",
             Some(error.to_string()),
             DiagnosticSeverity::Error,
-        ));
+        ).with_category(categorize_error(error)));
     }
 
     diagnostics
@@ -374,6 +417,9 @@ where
             result: None,
             error: Some(OutputError {
                 message: message.into(),
+                code: None,
+                category: None,
+                suggestion: None,
             }),
         }
     }
@@ -682,5 +728,19 @@ mod tests {
         assert!(json.contains("storage_seed"));
         assert!(json.contains("metadata"));
         assert!(json.contains("contract.wasm"));
+    }
+
+    #[test]
+    fn test_diagnostic_record_category() {
+        let record = DiagnosticRecord::new("test", "summary", None, DiagnosticSeverity::Error)
+            .with_category("timeout");
+        assert_eq!(record.category.as_deref(), Some("timeout"));
+    }
+
+    #[test]
+    fn test_categorize_error() {
+        assert_eq!(categorize_error("Execution timed out after 30 seconds"), "timeout");
+        assert_eq!(categorize_error("Parser failure in function 'test'"), "parser_failure");
+        assert_eq!(categorize_error("Contract failure: trap"), "contract_failure");
     }
 }
