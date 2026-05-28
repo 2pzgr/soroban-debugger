@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // ─── Diff types ──────────────────────────────────────────────────────
 
 /// Overall comparison report returned by [`CompareEngine::compare`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ComparisonReport {
     pub label_a: String,
     pub label_b: String,
@@ -20,7 +20,7 @@ pub struct ComparisonReport {
 }
 
 /// Storage key-level differences.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct StorageDiff {
     /// Keys present only in trace A
     pub only_in_a: BTreeMap<String, serde_json::Value>,
@@ -33,7 +33,7 @@ pub struct StorageDiff {
 }
 
 /// Numeric deltas for resource budgets.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct BudgetDiff {
     pub a: Option<BudgetTrace>,
     pub b: Option<BudgetTrace>,
@@ -43,7 +43,7 @@ pub struct BudgetDiff {
 }
 
 /// Return value comparison.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ReturnValueDiff {
     pub a: Option<serde_json::Value>,
     pub b: Option<serde_json::Value>,
@@ -51,7 +51,7 @@ pub struct ReturnValueDiff {
 }
 
 /// Call-sequence comparison.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct FlowDiff {
     pub a_calls: Vec<CallEntry>,
     pub b_calls: Vec<CallEntry>,
@@ -63,7 +63,7 @@ pub struct FlowDiff {
 }
 
 /// Event comparison.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct EventDiff {
     pub a_events: Vec<EventEntry>,
     pub b_events: Vec<EventEntry>,
@@ -73,7 +73,8 @@ pub struct EventDiff {
 }
 
 /// A single line in a unified-style diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiffLine {
     /// Present in both traces at the same position.
     Same(String),

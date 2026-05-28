@@ -51,7 +51,7 @@ pub struct ExecutionTrace {
 }
 
 /// Budget / resource usage captured in a trace.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BudgetTrace {
     pub cpu_instructions: u64,
     pub memory_bytes: u64,

@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReplayCommandOutputEnvelope",
+  "type": "object",
+  "required": ["schema_version", "command", "status", "result", "error"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "command": {
+      "type": "string",
+      "const": "replay"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"]
+    },
+    "result": {
+      "type": ["object", "null"],
+      "required": ["label_a", "label_b", "storage_diff", "budget_diff", "return_value_diff", "flow_diff", "event_diff"],
+      "properties": {
+        "label_a": { "type": "string" },
+        "label_b": { "type": "string" },
+        "storage_diff": {
+          "type": "object",
+          "required": ["only_in_a", "only_in_b", "modified", "unchanged_count"],
+          "properties": {
+            "only_in_a": { "type": "object" },
+            "only_in_b": { "type": "object" },
+            "modified": { "type": "object" },
+            "unchanged_count": { "type": "integer" }
+          }
+        },
+        "budget_diff": {
+          "type": "object",
+          "required": ["a", "b", "cpu_delta", "memory_delta"],
+          "properties": {
+            "a": { "type": ["object", "null"] },
+            "b": { "type": ["object", "null"] },
+            "cpu_delta": { "type": ["integer", "null"] },
+            "memory_delta": { "type": ["integer", "null"] }
+          }
+        },
+        "return_value_diff": {
+          "type": "object",
+          "required": ["a", "b", "equal"],
+          "properties": {
+            "a": { "type": ["object", "null", "string", "number", "boolean", "array"] },
+            "b": { "type": ["object", "null", "string", "number", "boolean", "array"] },
+            "equal": { "type": "boolean" }
+          }
+        },
+        "flow_diff": {
+          "type": "object",
+          "required": ["a_calls", "b_calls", "filtered_a_calls", "filtered_b_calls", "diff_lines", "identical"],
+          "properties": {
+            "a_calls": { "type": "array" },
+            "b_calls": { "type": "array" },
+            "filtered_a_calls": { "type": "array", "items": { "type": "string" } },
+            "filtered_b_calls": { "type": "array", "items": { "type": "string" } },
+            "diff_lines": { "type": "array" },
+            "identical": { "type": "boolean" }
+          }
+        },
+        "event_diff": {
+          "type": "object",
+          "required": ["a_events", "b_events", "filtered_a_events", "filtered_b_events", "identical"],
+          "properties": {
+            "a_events": { "type": "array" },
+            "b_events": { "type": "array" },
+            "filtered_a_events": { "type": "array" },
+            "filtered_b_events": { "type": "array" },
+            "identical": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "message": { "type": "string" },
+        "code": { "type": "string" },
+        "category": { "type": "string" },
+        "suggestion": { "type": "string" }
+      }
+    }
+  }
+}

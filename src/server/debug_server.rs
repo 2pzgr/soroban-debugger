@@ -154,6 +154,7 @@ impl DebugServer {
                 }
                 _ = self.shutdown.notified() => {
                     info!("Shutting down debug server");
+                    self.log_shutdown_summary();
                     drop(listener);
                     break;
                 }
@@ -260,22 +261,31 @@ impl DebugServer {
         let mut _heartbeat_timer = None;
 
         loop {
-            let next_message = if let Some(timeout) = idle_timeout {
-                match tokio::time::timeout(
-                    std::time::Duration::from_millis(timeout as u64),
-                    rx_in.recv(),
-                )
-                .await
-                {
-                    Ok(res) => res,
-                    Err(_) => {
-                        warn!("Idle timeout reached for connection");
-                        let _ = send_msg(DebugMessage::response(0, DebugResponse::Disconnected));
-                        return Ok(());
+            let next_message = tokio::select! {
+                msg = async {
+                    if let Some(timeout) = idle_timeout {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(timeout as u64),
+                            rx_in.recv(),
+                        )
+                        .await
+                        {
+                            Ok(res) => res,
+                            Err(_) => {
+                                warn!("Idle timeout reached for connection");
+                                let _ = tx_out.send(DebugMessage::response(0, DebugResponse::Disconnected));
+                                None
+                            }
+                        }
+                    } else {
+                        rx_in.recv().await
                     }
+                } => msg,
+                _ = self.shutdown.notified() => {
+                    info!("Shutdown signal received during active connection");
+                    self.shutdown.notify_one();
+                    break;
                 }
-            } else {
-                rx_in.recv().await
             };
 
             let line = match next_message {
@@ -1496,6 +1506,8 @@ impl DebugServer {
             self.last_disconnect = Some(std::time::Instant::now());
         }
 
+        reader_handle.abort();
+
         Ok(())
     }
 }
@@ -1751,6 +1763,26 @@ mod tests {
         )
         .expect("Failed to create server");
         assert_eq!(server.token, Some(token));
+    }
+
+    #[test]
+    fn test_shutdown_summary_output() {
+        let mut server = DebugServer::new(
+            "127.0.0.1".to_string(),
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            false,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        // Inject fake state to verify no panics during formatting
+        server.contract_wasm = Some(vec![0x00, 0x61, 0x73, 0x6d]);
+        server.log_shutdown_summary();
     }
 
     #[test]

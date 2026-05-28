@@ -329,3 +329,59 @@ fn symbolic_schema_rejects_missing_cap_metadata() {
         "schema should reject symbolic reports missing timeout truncation metadata"
     );
 }
+
+#[test]
+fn replay_success_json_fixture_matches_schema() {
+    let schema = compile_schema("tests/schemas/replay_output.json");
+    let success_content = fs::read_to_string("tests/fixtures/replay_success.json").unwrap();
+    let json_val: Value = serde_json::from_str(&success_content).unwrap();
+    assert_schema_valid(&schema, &json_val, "Replay success JSON");
+}
+
+#[test]
+fn replay_mismatch_json_fixture_matches_schema() {
+    let schema = compile_schema("tests/schemas/replay_output.json");
+    let mismatch_content = fs::read_to_string("tests/fixtures/replay_mismatch.json").unwrap();
+    let json_val: Value = serde_json::from_str(&mismatch_content).unwrap();
+    assert_schema_valid(&schema, &json_val, "Replay mismatch JSON");
+}
+
+#[test]
+fn replay_cli_json_output_matches_versioned_schema() {
+    let wasm_path = "tests/fixtures/wasm/counter.wasm";
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let trace_path = temp_dir.path().join("trace.json");
+
+    // 1. Generate trace using run command
+    let _run_output = Command::cargo_bin("soroban-debug")
+        .unwrap()
+        .arg("--quiet")
+        .arg("run")
+        .arg("--contract")
+        .arg(wasm_path)
+        .arg("--function")
+        .arg("increment")
+        .arg("--trace-output")
+        .arg(&trace_path)
+        .output()
+        .expect("Failed to execute run command to generate trace");
+
+    // 2. Replay trace using replay command in json mode
+    let replay_output = Command::cargo_bin("soroban-debug")
+        .unwrap()
+        .arg("--quiet")
+        .arg("replay")
+        .arg(&trace_path)
+        .arg("--contract")
+        .arg(wasm_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("Failed to execute replay command");
+
+    let json_val = parse_json_stdout(replay_output);
+    let schema = compile_schema("tests/schemas/replay_output.json");
+
+    assert_schema_valid(&schema, &json_val, "Replay CLI JSON");
+}
+

@@ -236,6 +236,12 @@ impl SecurityAnalyzer {
             suppressed_count,
         };
     }
+
+    /// Get the list of registered security rules.
+    /// Returns a vector of references to the rule trait objects.
+    pub fn get_rules(&self) -> Vec<&dyn SecurityRule> {
+        self.rules.iter().map(|r| r.as_ref()).collect()
+    }
 }
 
 impl Default for SecurityAnalyzer {
