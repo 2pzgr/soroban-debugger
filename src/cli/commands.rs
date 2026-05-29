@@ -31,7 +31,11 @@ use crate::ui::{run_dashboard, DebuggerUI};
 use crate::{DebuggerError, Result};
 use miette::WrapErr;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 fn print_info(message: impl AsRef<str>) {
     if !Formatter::is_quiet() {
@@ -2634,6 +2638,303 @@ struct DoctorCheck {
     message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CheckResult {
+    Pass {
+        message: String,
+        detail: Option<String>,
+    },
+    Fail {
+        message: String,
+        hint: String,
+        detail: Option<String>,
+    },
+    Unknown {
+        message: String,
+        hint: String,
+        detail: Option<String>,
+    },
+}
+
+impl CheckResult {
+    fn status(&self) -> &'static str {
+        match self {
+            Self::Pass { .. } => "PASS",
+            Self::Fail { .. } => "FAIL",
+            Self::Unknown { .. } => "UNKNOWN",
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::Pass { message, .. } => message,
+            Self::Fail { message, .. } => message,
+            Self::Unknown { message, .. } => message,
+        }
+    }
+
+    fn hint(&self) -> Option<&str> {
+        match self {
+            Self::Pass { .. } => None,
+            Self::Fail { hint, .. } => Some(hint),
+            Self::Unknown { hint, .. } => Some(hint),
+        }
+    }
+
+    fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Pass { detail, .. } => detail.as_deref(),
+            Self::Fail { detail, .. } => detail.as_deref(),
+            Self::Unknown { detail, .. } => detail.as_deref(),
+        }
+    }
+}
+
+trait DiagnosticCheck {
+    fn name(&self) -> &'static str;
+    fn description(&self) -> &'static str;
+    fn run(&self) -> CheckResult;
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct DoctorCheckOutput {
+    name: &'static str,
+    description: &'static str,
+    status: &'static str,
+    message: String,
+    hint: Option<String>,
+    detail: Option<String>,
+}
+
+struct ManpageDriftCheck;
+
+impl ManpageDriftCheck {
+    fn resolve_script_path(&self) -> Option<PathBuf> {
+        let mut candidates = Vec::new();
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.join("scripts/check_manpages.sh"));
+            }
+        }
+
+        if let Ok(current_dir) = std::env::current_dir() {
+            candidates.push(current_dir.join("scripts/check_manpages.sh"));
+        }
+
+        candidates.push(PathBuf::from("scripts/check_manpages.sh"));
+
+        candidates
+            .into_iter()
+            .find(|candidate| Self::script_is_executable(candidate.as_path()))
+    }
+
+    fn run_with_path(&self, script: Option<&Path>) -> CheckResult {
+        let Some(script) = script else {
+            return CheckResult::Unknown {
+                message: "scripts/check_manpages.sh not found — skipping manpage drift check"
+                    .to_string(),
+                hint: "Run `bash scripts/check_manpages.sh` from the repository root to check manually"
+                    .to_string(),
+                detail: None,
+            };
+        };
+
+        if !Self::script_is_executable(script) {
+            return CheckResult::Unknown {
+                message: "scripts/check_manpages.sh not found — skipping manpage drift check"
+                    .to_string(),
+                hint: "Run `bash scripts/check_manpages.sh` from the repository root to check manually"
+                    .to_string(),
+                detail: None,
+            };
+        }
+
+        let mut command = Command::new("bash");
+        command
+            .arg(script)
+            .env("CI", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                return CheckResult::Unknown {
+                    message: format!("Could not run scripts/check_manpages.sh: {}", err),
+                    hint: "Run `bash scripts/check_manpages.sh` from the repository root"
+                        .to_string(),
+                    detail: None,
+                }
+            }
+        };
+
+        let child_pid = child.id();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = child.wait_with_output();
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Ok(output)) => {
+                if output.status.success() {
+                    CheckResult::Pass {
+                        message: "Generated manpages are up to date".to_string(),
+                        detail: None,
+                    }
+                } else {
+                    CheckResult::Fail {
+                        message: "Manpage drift detected: generated references are stale"
+                            .to_string(),
+                        hint: "Run `bash scripts/check_manpages.sh` from the repository root to regenerate"
+                            .to_string(),
+                        detail: Some(Self::capture_output(&output)),
+                    }
+                }
+            }
+            Ok(Err(err)) => CheckResult::Unknown {
+                message: format!("Could not run scripts/check_manpages.sh: {}", err),
+                hint: "Run `bash scripts/check_manpages.sh` from the repository root"
+                    .to_string(),
+                detail: None,
+            },
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                Self::kill_process(child_pid);
+                CheckResult::Unknown {
+                    message: "manpage check timed out after 10 s".to_string(),
+                    hint: "Run `bash scripts/check_manpages.sh` manually to investigate"
+                        .to_string(),
+                    detail: None,
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => CheckResult::Unknown {
+                message: "Could not run scripts/check_manpages.sh: worker thread disconnected"
+                    .to_string(),
+                hint: "Run `bash scripts/check_manpages.sh` from the repository root"
+                    .to_string(),
+                detail: None,
+            },
+        }
+    }
+
+    fn script_is_executable(path: &Path) -> bool {
+        if !path.is_file() {
+            return false;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            match fs::metadata(path) {
+                Ok(metadata) => metadata.permissions().mode() & 0o111 != 0,
+                Err(_) => false,
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            true
+        }
+    }
+
+    fn capture_output(output: &std::process::Output) -> String {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut combined = String::new();
+
+        let stdout = stdout.trim();
+        if !stdout.is_empty() {
+            combined.push_str(stdout);
+        }
+
+        let stderr = stderr.trim();
+        if !stderr.is_empty() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(stderr);
+        }
+
+        Self::truncate_to_bytes(combined.trim(), 300)
+    }
+
+    fn truncate_to_bytes(text: &str, limit: usize) -> String {
+        if text.len() <= limit {
+            return text.to_string();
+        }
+
+        let mut end = limit;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text[..end].to_string()
+    }
+
+    #[cfg(unix)]
+    fn kill_process(pid: u32) {
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+    }
+
+    #[cfg(windows)]
+    fn kill_process(pid: u32) {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .status();
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn kill_process(pid: u32) {
+        let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+}
+
+impl DiagnosticCheck for ManpageDriftCheck {
+    fn name(&self) -> &'static str {
+        "manpage-drift"
+    }
+
+    fn description(&self) -> &'static str {
+        "Checks whether generated manpages are current"
+    }
+
+    fn run(&self) -> CheckResult {
+        self.run_with_path(self.resolve_script_path().as_deref())
+    }
+}
+
+fn doctor_checks() -> Vec<Box<dyn DiagnosticCheck>> {
+    vec![Box::new(ManpageDriftCheck)]
+}
+
+fn render_doctor_check(output: &DoctorCheckOutput) {
+    println!(
+        "{} [{}] {}",
+        output.name, output.status, output.description
+    );
+    println!("  {}", output.message);
+
+    if let Some(hint) = &output.hint {
+        println!("  Hint: {}", hint);
+    }
+
+    if let Some(detail) = &output.detail {
+        println!("  {}", detail);
+    }
+}
+
+fn doctor_check_output(check: &dyn DiagnosticCheck, result: CheckResult) -> DoctorCheckOutput {
+    DoctorCheckOutput {
+        name: check.name(),
+        description: check.description(),
+        status: result.status(),
+        message: result.message().to_string(),
+        hint: result.hint().map(|hint| hint.to_string()),
+        detail: result.detail().map(|detail| detail.to_string()),
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 struct RemoteDoctorReport {
     address: String,
@@ -3028,13 +3329,29 @@ pub fn plugin_inspect(args: PluginInspectArgs) -> Result<()> {
 
 /// Run the doctor command to report health and diagnostics.
 pub fn doctor(args: DoctorArgs) -> Result<()> {
-    // Placeholder implementation for now
-    println!("Running doctor diagnostics (format: {:?})...", args.format);
-    
-    // In a real implementation, we would gather binary info, config info, etc.
-    // For now, let's just print a success message to satisfy the compiler.
-    println!("All systems operational.");
-    
+    let check_outputs: Vec<DoctorCheckOutput> = doctor_checks()
+        .into_iter()
+        .map(|check| {
+            let result = check.run();
+            doctor_check_output(check.as_ref(), result)
+        })
+        .collect();
+
+    match args.format {
+        crate::cli::args::OutputFormat::Pretty => {
+            println!("Running doctor diagnostics...");
+            for output in &check_outputs {
+                render_doctor_check(output);
+            }
+        }
+        crate::cli::args::OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&check_outputs).map_err(|e| {
+                DebuggerError::FileError(format!("Failed to serialize doctor output: {}", e))
+            })?;
+            println!("{}", json);
+        }
+    }
+
     Ok(())
 }
 
@@ -3070,6 +3387,84 @@ mod tests {
         assert!(json.get("plugins").is_some());
         assert!(json.get("protocol").is_some());
         assert!(json.get("vscode_extension").is_some());
+    }
+
+    #[test]
+    fn check_name_is_correct() {
+        let check = ManpageDriftCheck;
+        assert_eq!(check.name(), "manpage-drift");
+    }
+
+    #[test]
+    fn returns_unknown_when_script_missing() {
+        let check = ManpageDriftCheck;
+        let result = check.run_with_path(None);
+
+        match result {
+            CheckResult::Unknown { message, .. } => {
+                assert!(message.contains("not found"));
+            }
+            other => panic!("expected Unknown result, got {:?}", other),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn returns_fail_on_nonzero_exit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let check = ManpageDriftCheck;
+        let script_path = std::env::temp_dir().join(format!(
+            "soroban-debug-manpage-drift-fail-{}-{}.sh",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&script_path, "#!/bin/sh\necho 'drift detected'\nexit 1\n").unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        let result = check.run_with_path(Some(&script_path));
+
+        match result {
+            CheckResult::Fail {
+                message, detail, ..
+            } => {
+                assert!(message.contains("stale"));
+                assert!(detail.unwrap_or_default().contains("drift detected"));
+            }
+            other => panic!("expected Fail result, got {:?}", other),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn returns_pass_on_zero_exit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let check = ManpageDriftCheck;
+        let script_path = std::env::temp_dir().join(format!(
+            "soroban-debug-manpage-drift-pass-{}-{}.sh",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&script_path, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        let result = check.run_with_path(Some(&script_path));
+
+        match result {
+            CheckResult::Pass { .. } => {}
+            other => panic!("expected Pass result, got {:?}", other),
+        }
     }
 }
 //
