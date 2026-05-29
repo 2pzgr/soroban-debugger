@@ -41,7 +41,7 @@ soroban-debug server --host 10.0.0.15 --port 9229 \
 
 ### Connect from a client
 
-
+```bash
 soroban-debug remote \
   --remote localhost:9229 \
   --token "$SOROBAN_DEBUG_TOKEN" \

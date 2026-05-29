@@ -87,16 +87,6 @@ pub enum SnapshotCompression {
     Zstd,
 }
 
-/// Minimum severity level for security findings.
-/// Used with the `analyze` command to filter results by severity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
-pub enum MinSeverity {
-    #[default]
-    Low,
-    Medium,
-    High,
-}
-
 impl Verbosity {
     /// Convert verbosity to log level string for RUST_LOG
     pub fn to_log_level(self) -> String {
@@ -159,10 +149,6 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Commands>,
-
-    /// Pretty-print JSON outputs instead of compact JSON
-    #[arg(long, global = true)]
-    pub pretty: bool,
 
     /// Show detailed version information
     #[arg(long)]
@@ -248,6 +234,13 @@ pub enum Commands {
     Server(ServerArgs),
 
     /// Connect to remote debug server
+    ///
+    /// Examples:
+    ///   soroban-debug remote --remote localhost:9229 --token "$TOKEN"
+    ///   soroban-debug remote --remote 10.0.0.15:9229 --token "$TOKEN" --tls-ca /path/to/server-ca.pem
+    ///
+    /// For TLS and connection issues, see the remote troubleshooting guide:
+    /// https://github.com/Timi16/soroban-debugger/blob/main/docs/remote-troubleshooting.md
     #[command(subcommand_help_heading = "Remote and Server")]
     Remote(RemoteArgs),
 
@@ -259,14 +252,6 @@ pub enum Commands {
     /// Prune or compact run history according to a retention policy
     #[command(subcommand_help_heading = "Developer Utilities")]
     HistoryPrune(HistoryPruneArgs),
-
-    /// Generate a trust and security report for all loaded plugins
-    #[command(subcommand_help_heading = "Developer Utilities")]
-    PluginTrustReport(PluginTrustReportArgs),
-
-    /// Inspect a specific plugin's capabilities and metadata
-    #[command(subcommand_help_heading = "Developer Utilities")]
-    PluginInspect(PluginInspectArgs),
 
     /// Report runtime health and diagnostics for troubleshooting
     Doctor(DoctorArgs),
@@ -773,7 +758,7 @@ pub struct OptimizeArgs {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, OutputFormat, SymbolicProfile, MinSeverity};
+    use super::{Cli, Commands, OutputFormat, SymbolicProfile};
     use clap::Parser;
 
     #[test]
@@ -1058,24 +1043,7 @@ mod tests {
         assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
         assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
     }
-
-    #[test]
-    fn replay_accepts_format_flag() {
-        let cli = Cli::parse_from([
-            "soroban-debug",
-            "replay",
-            "trace.json",
-            "--format",
-            "json",
-        ]);
-
-        let Commands::Replay(args) = cli.command.expect("replay command expected") else {
-            panic!("replay command expected");
-        };
-
-        assert_eq!(args.format, OutputFormat::Json);
-        assert_eq!(args.trace_file.to_str().unwrap(), "trace.json");
-    }
+}
 }
 
 #[derive(Parser)]
@@ -1101,10 +1069,6 @@ pub struct CompareArgs {
     /// Repeatable. Useful for timestamps, sequence numbers, and similar metadata.
     #[arg(long, value_name = "FIELD")]
     pub ignore_field: Vec<String>,
-
-    /// Output format for the comparison report (pretty or json)
-    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
-    pub format: OutputFormat,
 }
 
 /// Arguments for the TUI dashboard subcommand
@@ -1281,17 +1245,9 @@ pub struct ReplayArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    /// Output format for replay command (pretty, json)
-    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
-    pub format: OutputFormat,
-
     /// Show verbose output during replay
     #[arg(short, long)]
     pub verbose: bool,
-
-    /// Output format for the diff report (pretty or json)
-    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
-    pub format: OutputFormat,
 }
 
 #[derive(Parser)]
@@ -1307,12 +1263,6 @@ pub struct ServerArgs {
     /// Authentication token (optional, if not provided no auth required)
     #[arg(short, long)]
     pub token: Option<String>,
-
-    /// Enforce the token-strength policy: reject startup if the auth token is
-    /// shorter than 16 characters instead of only warning. Recommended in
-    /// production; a random 32-byte token is ideal.
-    #[arg(long)]
-    pub require_strong_token: bool,
 
     /// TLS certificate file path (optional)
     #[arg(long)]
@@ -1424,15 +1374,11 @@ pub struct RemoteArgs {
 
     /// Maximum number of retry attempts for idempotent requests (ping, inspect, storage).
     ///
-    /// Must be at least 1.  Use 1 to disable retries entirely (one attempt, no retry).
-    ///
     /// Default: 3.
     #[arg(long, value_name = "N", default_value = "3")]
     pub retry_attempts: usize,
 
     /// Base delay in milliseconds between retry attempts (exponential back-off).
-    ///
-    /// Must be greater than 0 and no larger than --retry-max-delay-ms.
     ///
     /// Default: 200 ms.
     #[arg(long, value_name = "MS", default_value = "200")]
@@ -1440,15 +1386,9 @@ pub struct RemoteArgs {
 
     /// Maximum delay in milliseconds between retry attempts.
     ///
-    /// Must be greater than or equal to --retry-base-delay-ms.
-    ///
     /// Default: 2 000 ms.
     #[arg(long, value_name = "MS", default_value = "2000")]
     pub retry_max_delay_ms: u64,
-
-    /// Output format for remote command (pretty, json)
-    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
-    pub format: OutputFormat,
 
     /// Remote operation to perform (default: execute or ping)
     #[command(subcommand)]
@@ -1461,21 +1401,10 @@ pub enum RemoteAction {
     Inspect,
 
     /// Get contract storage state as JSON
-    Storage(RemoteStorageArgs),
+    Storage,
 
     /// Evaluate an expression in the current debug context
     Evaluate(RemoteEvaluateArgs),
-
-    /// Run a preflight check: connect, handshake, auth, and optional TLS validation
-    /// without loading a contract. Suitable for CI health checks and troubleshooting.
-    Preflight(PreflightArgs),
-}
-
-#[derive(Parser)]
-pub struct PreflightArgs {
-    /// Output format (pretty or json)
-    #[arg(long = "output", value_enum, default_value_t = OutputFormat::Pretty)]
-    pub output_format: OutputFormat,
 }
 
 #[derive(Parser)]
@@ -1487,16 +1416,6 @@ pub struct RemoteEvaluateArgs {
     /// Stack frame ID for evaluation context (optional)
     #[arg(long)]
     pub frame_id: Option<u64>,
-}
-
-#[derive(Parser)]
-pub struct RemoteStorageArgs {
-    /// Filter storage output by key pattern (repeatable). Supports:
-    ///   prefix*       — match keys starting with prefix
-    ///   re:<regex>    — match keys by regex
-    ///   exact_key     — match key exactly
-    #[arg(long, value_name = "PATTERN")]
-    pub storage_filter: Vec<String>,
 }
 
 #[derive(Parser)]
@@ -1534,8 +1453,8 @@ pub struct AnalyzeArgs {
     pub disable_rule: Vec<String>,
 
     /// Minimum severity to include: low, medium, or high.
-    #[arg(long, value_enum, default_value_t = MinSeverity::Low)]
-    pub min_severity: MinSeverity,
+    #[arg(long, default_value = "low", value_name = "SEVERITY")]
+    pub min_severity: String,
 }
 
 #[derive(Parser)]
@@ -1588,21 +1507,4 @@ pub struct DoctorArgs {
     /// Optional path to a VS Code extension `package.json` to report version hints
     #[arg(long, value_name = "FILE")]
     pub vscode_manifest: Option<PathBuf>,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct PluginTrustReportArgs {
-    /// Output format (pretty, json)
-    #[arg(long, value_enum, default_value = "pretty")]
-    pub format: OutputFormat,
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct PluginInspectArgs {
-    /// Name of the plugin to inspect
-    pub name: String,
-
-    /// Output format (pretty, json)
-    #[arg(long, value_enum, default_value = "pretty")]
-    pub format: OutputFormat,
 }

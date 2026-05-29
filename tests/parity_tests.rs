@@ -136,7 +136,9 @@ fn parity_cli_remote_command_flags_exist() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--remote"))
-        .stdout(predicate::str::contains("--token"));
+        .stdout(predicate::str::contains("--token"))
+        .stdout(predicate::str::contains("--tls-ca"))
+        .stdout(predicate::str::contains("server-ca.pem"));
 }
 
 /// SURFACE: CLI only
