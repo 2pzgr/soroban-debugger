@@ -5,10 +5,41 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::inspector::budget::{BudgetInspector, ResourceCheckpoint};
+
+/// Format a `SystemTime` as a UTC ISO 8601 string (e.g. `"2026-05-27T12:34:56Z"`).
+///
+/// Uses only the standard library — no locale dependency.
+pub fn format_timestamp_iso8601(time: std::time::SystemTime) -> String {
+    use chrono::{DateTime, Utc};
+    let dt: DateTime<Utc> = time.into();
+    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Return the current UTC time as an ISO 8601 string.
+pub fn now_iso8601() -> String {
+    format_timestamp_iso8601(std::time::SystemTime::now())
+}
 
 static NO_UNICODE: AtomicBool = AtomicBool::new(false);
 static COLORS_ENABLED: AtomicBool = AtomicBool::new(true);
+static PRETTY_JSON: AtomicBool = AtomicBool::new(false);
+
+pub fn set_pretty_json(pretty: bool) {
+    PRETTY_JSON.store(pretty, Ordering::Relaxed);
+}
+
+pub fn is_pretty_json() -> bool {
+    PRETTY_JSON.load(Ordering::Relaxed)
+}
+
+pub fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    if is_pretty_json() {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
 pub const SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -43,6 +74,8 @@ pub struct DiagnosticRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub severity: DiagnosticSeverity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 impl DiagnosticRecord {
@@ -57,7 +90,13 @@ impl DiagnosticRecord {
             summary: summary.into(),
             detail,
             severity,
+            category: None,
         }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
     }
 
     pub fn display_line(&self) -> String {
@@ -79,9 +118,15 @@ impl DiagnosticRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputError {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -201,8 +246,13 @@ impl PluginReloadReport {
     pub fn summary_line(&self) -> String {
         match self.outcome {
             PluginReloadOutcome::Success => {
-                let size = self.preserved_state_bytes.map_or("unknown".to_string(), |b| format!("{} bytes", b));
-                format!("Plugin '{}' reloaded successfully. Preserved state: {}.", self.plugin, size)
+                let size = self
+                    .preserved_state_bytes
+                    .map_or("unknown".to_string(), |b| format!("{} bytes", b));
+                format!(
+                    "Plugin '{}' reloaded successfully. Preserved state: {}.",
+                    self.plugin, size
+                )
             }
             PluginReloadOutcome::Failed => {
                 let reason = self.reason.as_deref().unwrap_or("unknown error");
@@ -210,7 +260,10 @@ impl PluginReloadReport {
             }
             PluginReloadOutcome::RolledBack => {
                 let reason = self.reason.as_deref().unwrap_or("unknown error");
-                format!("Plugin '{}' reload rolled back. Reason: {}.", self.plugin, reason)
+                format!(
+                    "Plugin '{}' reload rolled back. Reason: {}.",
+                    self.plugin, reason
+                )
             }
         }
     }
@@ -267,6 +320,17 @@ pub struct BatchSummary {
 pub struct BatchExecutionResult {
     pub summary: BatchSummary,
     pub results: Vec<BatchResult>,
+}
+
+pub fn categorize_error(error: &str) -> &'static str {
+    let lower_err = error.to_lowercase();
+    if lower_err.contains("time") && lower_err.contains("out") {
+        "timeout"
+    } else if lower_err.contains("parser failure") || lower_err.contains("invalid arguments") {
+        "parser_failure"
+    } else {
+        "contract_failure"
+    }
 }
 
 pub fn collect_runtime_diagnostics(
@@ -327,7 +391,7 @@ pub fn collect_runtime_diagnostics(
             "The most recent debugger action failed.",
             Some(error.to_string()),
             DiagnosticSeverity::Error,
-        ));
+        ).with_category(categorize_error(error)));
     }
 
     diagnostics
@@ -367,6 +431,9 @@ where
             result: None,
             error: Some(OutputError {
                 message: message.into(),
+                code: None,
+                category: None,
+                suggestion: None,
             }),
         }
     }
@@ -573,10 +640,74 @@ impl OutputWriter {
     }
 }
 
+/// Formats a resource usage timeline as a human-readable table.
+pub fn format_resource_timeline(
+    timeline: &[crate::inspector::budget::ResourceCheckpoint],
+) -> String {
+    let mut output = String::new();
+    let mut last_cpu = 0;
+    let mut last_mem = 0;
+
+    output.push_str("| Time | Location | Total CPU | CPU Delta | Total Mem | Mem Delta |\n");
+    output.push_str("|------|----------|-----------|-----------|-----------|-----------|\n");
+
+    for checkpoint in timeline {
+        let cpu_delta = checkpoint.cpu_instructions.saturating_sub(last_cpu);
+        let mem_delta = checkpoint.memory_bytes.saturating_sub(last_mem);
+
+        let _ = writeln!(
+            output,
+            "| {: >4}ms | {: <8} | {: >9} | {: >9} | {: >9} | {: >9} |",
+            checkpoint.timestamp_ms,
+            if checkpoint.location_name.len() > 8 {
+                &checkpoint.location_name[..8]
+            } else {
+                &checkpoint.location_name
+            },
+            checkpoint.cpu_instructions,
+            cpu_delta,
+            checkpoint.memory_bytes,
+            mem_delta
+        );
+
+        last_cpu = checkpoint.cpu_instructions;
+        last_mem = checkpoint.memory_bytes;
+    }
+    output
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_timestamp_iso8601_produces_utc_z_suffix() {
+        let epoch = std::time::SystemTime::UNIX_EPOCH;
+        let s = format_timestamp_iso8601(epoch);
+        assert_eq!(s, "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn format_timestamp_iso8601_known_value() {
+        // 2025-05-27 00:00:00 UTC  =>  1748304000 seconds since epoch
+        let t = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(1_748_304_000);
+        let s = format_timestamp_iso8601(t);
+        assert_eq!(s, "2025-05-27T00:00:00Z");
+    }
+
+    #[test]
+    fn now_iso8601_has_expected_format() {
+        let s = now_iso8601();
+        // Must look like YYYY-MM-DDTHH:MM:SSZ (20 chars)
+        assert_eq!(s.len(), 20, "unexpected length: {}", s);
+        assert!(s.ends_with('Z'), "must end with Z: {}", s);
+        assert_eq!(&s[4..5], "-");
+        assert_eq!(&s[7..8], "-");
+        assert_eq!(&s[10..11], "T");
+        assert_eq!(&s[13..14], ":");
+        assert_eq!(&s[16..17], ":");
+    }
 
     #[test]
     fn test_replay_bundle_serializes() {
@@ -642,40 +773,18 @@ mod tests {
         assert!(json.contains("metadata"));
         assert!(json.contains("contract.wasm"));
     }
-}
 
-/// Formats a resource usage timeline as a human-readable table.
-pub fn format_resource_timeline(
-    timeline: &[crate::inspector::budget::ResourceCheckpoint],
-) -> String {
-    let mut output = String::new();
-    let mut last_cpu = 0;
-    let mut last_mem = 0;
-
-    output.push_str("| Time | Location | Total CPU | CPU Delta | Total Mem | Mem Delta |\n");
-    output.push_str("|------|----------|-----------|-----------|-----------|-----------|\n");
-
-    for checkpoint in timeline {
-        let cpu_delta = checkpoint.cpu_instructions.saturating_sub(last_cpu);
-        let mem_delta = checkpoint.memory_bytes.saturating_sub(last_mem);
-
-        let _ = writeln!(
-            output,
-            "| {: >4}ms | {: <8} | {: >9} | {: >9} | {: >9} | {: >9} |",
-            checkpoint.timestamp_ms,
-            if checkpoint.location_name.len() > 8 {
-                &checkpoint.location_name[..8]
-            } else {
-                &checkpoint.location_name
-            },
-            checkpoint.cpu_instructions,
-            cpu_delta,
-            checkpoint.memory_bytes,
-            mem_delta
-        );
-
-        last_cpu = checkpoint.cpu_instructions;
-        last_mem = checkpoint.memory_bytes;
+    #[test]
+    fn test_diagnostic_record_category() {
+        let record = DiagnosticRecord::new("test", "summary", None, DiagnosticSeverity::Error)
+            .with_category("timeout");
+        assert_eq!(record.category.as_deref(), Some("timeout"));
     }
-    output
+
+    #[test]
+    fn test_categorize_error() {
+        assert_eq!(categorize_error("Execution timed out after 30 seconds"), "timeout");
+        assert_eq!(categorize_error("Parser failure in function 'test'"), "parser_failure");
+        assert_eq!(categorize_error("Contract failure: trap"), "contract_failure");
+    }
 }

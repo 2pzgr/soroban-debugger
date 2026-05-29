@@ -43,10 +43,18 @@ pub struct RuleMetadata {
     pub name: String,
     pub description: String,
     pub severity: Severity,
+    /// Stable category key for downstream filtering (e.g. "security", "upgrade").
+    /// Defaults to "security" when a rule doesn't override it.
+    #[serde(default = "default_rule_category")]
+    pub category: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remediation: Option<String>,
+}
+
+fn default_rule_category() -> String {
+    "security".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -80,6 +88,10 @@ pub trait SecurityRule {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn severity(&self) -> Severity;
+    /// Stable category key for downstream filtering. Defaults to "security".
+    fn category(&self) -> &str {
+        "security"
+    }
     fn rationale(&self) -> Option<&str> {
         None
     }
@@ -93,6 +105,7 @@ pub trait SecurityRule {
             name: self.name().to_string(),
             description: self.description().to_string(),
             severity: self.severity(),
+            category: self.category().to_string(),
             rationale: self.rationale().map(|s| s.to_string()),
             remediation: self.remediation().map(|s| s.to_string()),
         }
@@ -222,6 +235,12 @@ impl SecurityAnalyzer {
             total_findings: report.findings.len(),
             suppressed_count,
         };
+    }
+
+    /// Get the list of registered security rules.
+    /// Returns a vector of references to the rule trait objects.
+    pub fn get_rules(&self) -> Vec<&dyn SecurityRule> {
+        self.rules.iter().map(|r| r.as_ref()).collect()
     }
 }
 
@@ -1913,7 +1932,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn make_event(seq: usize, kind: DynamicTraceEventKind, depth: usize) -> DynamicTraceEvent {
-        DynamicTraceEvent { invocation_reason: None, 
+        DynamicTraceEvent {
             sequence: seq,
             kind,
             message: String::new(),
@@ -1993,7 +2012,7 @@ mod tests {
 
     #[test]
     fn frame_key_for_allows_call_depth_without_function() {
-        let event = DynamicTraceEvent { invocation_reason: None, 
+        let event = DynamicTraceEvent {
             sequence: 0,
             kind: DynamicTraceEventKind::CrossContractCall,
             message: String::new(),
@@ -2014,7 +2033,7 @@ mod tests {
     #[test]
     fn reentrancy_rule_matches_same_depth_when_cross_call_function_missing() {
         let findings = analyze_reentrancy_pattern_dynamic(&[
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::CrossContractCall,
                 message: "unknown frame call".to_string(),
@@ -2026,7 +2045,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write balance".to_string(),
@@ -2048,7 +2067,7 @@ mod tests {
     #[test]
     fn reentrancy_rule_matches_same_depth_when_write_function_missing() {
         let findings = analyze_reentrancy_pattern_dynamic(&[
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::CrossContractCall,
                 message: "withdraw invokes external".to_string(),
@@ -2060,7 +2079,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write balance".to_string(),
@@ -2085,7 +2104,7 @@ mod tests {
     fn unbounded_iteration_dynamic_flags_high_risk_pattern() {
         let mut trace = Vec::new();
         for i in 0..90usize {
-            trace.push(DynamicTraceEvent { invocation_reason: None, 
+            trace.push(DynamicTraceEvent {
                 sequence: i,
                 kind: DynamicTraceEventKind::StorageRead,
                 message: "contract_storage_get".to_string(),
@@ -2108,7 +2127,7 @@ mod tests {
     fn storage_write_pressure_dynamic_flags_hot_state_mutation() {
         let mut trace = Vec::new();
         for i in 0..40usize {
-            trace.push(DynamicTraceEvent { invocation_reason: None, 
+            trace.push(DynamicTraceEvent {
                 sequence: i,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "storage_put".to_string(),
@@ -2136,7 +2155,7 @@ mod tests {
     #[test]
     fn reentrancy_rule_flags_same_frame_write_after_cross_contract_call() {
         let findings = analyze_reentrancy_pattern_dynamic(&[
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::FunctionCall,
                 message: "main -> withdraw".to_string(),
@@ -2148,7 +2167,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::CrossContractCall,
                 message: "withdraw invokes token.transfer".to_string(),
@@ -2160,7 +2179,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 3,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write balance".to_string(),
@@ -2188,7 +2207,7 @@ mod tests {
     #[test]
     fn reentrancy_rule_skips_post_call_write_when_pre_call_effect_seen_in_same_frame() {
         let findings = analyze_reentrancy_pattern_dynamic(&[
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::FunctionCall,
                 message: "main -> settle".to_string(),
@@ -2200,7 +2219,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "mark settled".to_string(),
@@ -2212,7 +2231,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 3,
                 kind: DynamicTraceEventKind::CrossContractCall,
                 message: "settle invokes payout".to_string(),
@@ -2224,7 +2243,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 4,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "emit bookkeeping marker".to_string(),
@@ -2244,7 +2263,7 @@ mod tests {
     #[test]
     fn reentrancy_rule_skips_write_in_different_frame_after_cross_contract_call() {
         let findings = analyze_reentrancy_pattern_dynamic(&[
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::FunctionCall,
                 message: "main -> withdraw".to_string(),
@@ -2256,7 +2275,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::CrossContractCall,
                 message: "withdraw invokes token.transfer".to_string(),
@@ -2268,7 +2287,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 3,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "nested contract writes receipt".to_string(),
@@ -2366,7 +2385,7 @@ mod tests {
         let rule = AuthorizationCheckRule;
 
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key1".to_string(),
@@ -2378,7 +2397,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::Authorization,
                 message: "auth check".to_string(),
@@ -2403,7 +2422,7 @@ mod tests {
         let rule = AuthorizationCheckRule;
 
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::Authorization,
                 message: "auth check".to_string(),
@@ -2415,7 +2434,7 @@ mod tests {
                 address: Some("G123...".to_string()),
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key1".to_string(),
@@ -2438,7 +2457,7 @@ mod tests {
         let rule = AuthorizationCheckRule;
 
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key1".to_string(),
@@ -2450,7 +2469,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key2".to_string(),
@@ -2462,7 +2481,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 2,
                 kind: DynamicTraceEventKind::Authorization,
                 message: "auth check".to_string(),
@@ -2487,7 +2506,7 @@ mod tests {
         let rule = AuthorizationCheckRule;
 
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key1".to_string(),
@@ -2499,7 +2518,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key2".to_string(),
@@ -2527,7 +2546,7 @@ mod tests {
 
         // Test case: Authorization happens in depth 1 (e.g. nested call), but write happens in depth 0
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::Authorization,
                 message: "auth check inside nested".to_string(),
@@ -2539,7 +2558,7 @@ mod tests {
                 address: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write key1 in main".to_string(),
@@ -2566,7 +2585,7 @@ mod tests {
         let rule = AuthorizationCheckRule;
 
         let trace = vec![
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 0,
                 kind: DynamicTraceEventKind::Authorization,
                 message: "authorized G_ALICE".to_string(),
@@ -2580,7 +2599,7 @@ mod tests {
                 caller: None,
                 invocation_reason: None,
             },
-            DynamicTraceEvent { invocation_reason: None, 
+            DynamicTraceEvent {
                 sequence: 1,
                 kind: DynamicTraceEventKind::StorageWrite,
                 message: "write G_BOB data".to_string(),

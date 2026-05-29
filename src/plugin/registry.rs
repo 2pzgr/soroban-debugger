@@ -1579,6 +1579,7 @@ mod tests {
         fn new(name: &str, hook_behavior: Vec<Behavior>, command_behavior: Vec<Behavior>) -> Self {
             Self {
                 manifest: PluginManifest {
+                    schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
                     name: name.to_string(),
                     version: "1.0.0".to_string(),
                     description: "test plugin".to_string(),
@@ -1871,6 +1872,7 @@ mod tests {
         fn new(name: &str, command_name: &str, response: &str) -> Self {
             Self {
                 manifest: PluginManifest {
+                    schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
                     name: name.to_string(),
                     version: "1.0.0".to_string(),
                     description: "test plugin".to_string(),
@@ -1929,6 +1931,7 @@ mod tests {
             Box::new(plugin_a),
             PathBuf::from("plugin-a.so"),
             PluginManifest {
+                schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
                 name: "plugin-a".to_string(),
                 version: "1.0.0".to_string(),
                 description: "test plugin".to_string(),
@@ -1957,6 +1960,7 @@ mod tests {
             Box::new(plugin_b),
             PathBuf::from("plugin-b.so"),
             PluginManifest {
+                schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
                 name: "plugin-b".to_string(),
                 version: "1.0.0".to_string(),
                 description: "test plugin".to_string(),
@@ -2024,6 +2028,7 @@ mod tests {
         let mut registry = PluginRegistry::with_plugin_dir(temp_dir.clone()).unwrap();
 
         let manifest_a = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "plugin-a".to_string(),
             version: "1.0.0".to_string(),
             description: "test plugin".to_string(),
@@ -2057,6 +2062,7 @@ mod tests {
         );
 
         let manifest_b = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "plugin-b".to_string(),
             version: "1.0.0".to_string(),
             description: "test plugin".to_string(),

@@ -133,6 +133,46 @@ log() {
     printf '[bench-regression] %s\n' "$*"
 }
 
+list_bench_targets() {
+    local cargo_toml="$1"
+
+    awk -F'"' '
+        /^\[\[bench\]\]$/ {
+            in_bench = 1
+            next
+        }
+        in_bench && /^name[[:space:]]*=/ {
+            print $2
+            in_bench = 0
+        }
+    ' "$cargo_toml"
+}
+
+run_declared_benchmarks() {
+    local repo_dir="$1"
+    local target_dir="$2"
+    local cargo_toml="$repo_dir/Cargo.toml"
+    local bench_targets=()
+    local bench
+
+    while IFS= read -r bench; do
+        [ -n "$bench" ] && bench_targets+=("$bench")
+    done < <(list_bench_targets "$cargo_toml")
+
+    if [ "${#bench_targets[@]}" -eq 0 ]; then
+        echo "ERROR: No [[bench]] targets were found in $cargo_toml." >&2
+        return 1
+    fi
+
+    for bench in "${bench_targets[@]}"; do
+        log "running bench target '$bench' in $repo_dir"
+        (
+            cd "$repo_dir"
+            CARGO_TARGET_DIR="$target_dir" cargo bench --bench "$bench" -- --noplot
+        )
+    done
+}
+
 log_worktree_state() {
     log "worktree state"
     git -C "$REPO_ROOT" worktree list --porcelain || log "unable to read worktree list"
@@ -199,7 +239,7 @@ BASELINE_TARGET="$TEMP_DIR/baseline-target"
 echo "Running benchmarks for the current checkout..."
 (
     cd "$REPO_ROOT"
-    CARGO_TARGET_DIR="$CURRENT_TARGET" cargo bench --benches -- --noplot
+    run_declared_benchmarks "$REPO_ROOT" "$CURRENT_TARGET"
     cargo run --quiet --bin bench-regression -- record \
         --criterion "$CURRENT_TARGET/criterion" \
         --out "$CURRENT_JSON"
@@ -208,7 +248,7 @@ echo "Running benchmarks for the current checkout..."
 log "running benchmarks for baseline checkout"
 (
     cd "$WORKTREE_DIR"
-    CARGO_TARGET_DIR="$BASELINE_TARGET" cargo bench --benches -- --noplot
+    run_declared_benchmarks "$WORKTREE_DIR" "$BASELINE_TARGET"
     cargo run --quiet --bin bench-regression -- record \
         --criterion "$BASELINE_TARGET/criterion" \
         --out "$BASELINE_JSON"

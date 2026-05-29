@@ -5,7 +5,17 @@ use std::path::Path;
 
 #[test]
 fn test_server_creation_without_token() {
-    let server = DebugServer::new("127.0.0.1".to_string(), None, None, None, None, Vec::new());
+    let server = DebugServer::new(
+        "127.0.0.1".to_string(),
+        None,
+        None,
+        None,
+        None,
+        Vec::new(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    );
     assert!(server.is_ok(), "Server should be creatable without token");
 }
 
@@ -18,6 +28,9 @@ fn test_server_creation_with_token() {
         None,
         None,
         None,
+        Vec::new(),
+        false,
+        Vec::new(),
         Vec::new(),
     )
     .expect("Failed to create server with token");
@@ -34,6 +47,9 @@ fn test_server_rejects_partial_tls_configuration() {
         Some(fake_cert),
         None,
         None,
+        Vec::new(),
+        false,
+        Vec::new(),
         Vec::new(),
     ) {
         Ok(_) => panic!("expected TLS unsupported error"),
@@ -57,6 +73,9 @@ fn test_server_accepts_both_tls_paths_for_loading() {
         Some(fake_cert),
         Some(fake_key),
         None,
+        Vec::new(),
+        false,
+        Vec::new(),
         Vec::new(),
     );
     assert!(

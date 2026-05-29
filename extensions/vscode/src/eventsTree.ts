@@ -12,9 +12,11 @@ export interface SorobanEvent {
     address?: string;
 }
 
-export class EventsTreeDataProvider implements vscode.TreeDataProvider<EventItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<EventItem | undefined | null | void> = new vscode.EventEmitter<EventItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<EventItem | undefined | null | void> = this._onDidChangeTreeData.event;
+type EventTreeNode = EventItem | EventItemDetail;
+
+export class EventsTreeDataProvider implements vscode.TreeDataProvider<EventTreeNode> {
+    private _onDidChangeTreeData: vscode.EventEmitter<EventTreeNode | undefined | null | void> = new vscode.EventEmitter<EventTreeNode | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<EventTreeNode | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private events: SorobanEvent[] = [];
 
@@ -25,12 +27,12 @@ export class EventsTreeDataProvider implements vscode.TreeDataProvider<EventItem
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: EventItem): vscode.TreeItem {
+    getTreeItem(element: EventTreeNode): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: EventItem): Thenable<EventItem[]> {
-        if (element) {
+    getChildren(element?: EventTreeNode): Thenable<EventTreeNode[]> {
+        if (element instanceof EventItem) {
             return Promise.resolve(element.getDetails());
         } else {
             return Promise.resolve(this.events.map(event => new EventItem(event)));

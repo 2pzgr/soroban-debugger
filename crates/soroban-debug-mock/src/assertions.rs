@@ -6,7 +6,7 @@ pub struct StorageAssertions<'a> {
 
 impl<'a> StorageAssertions<'a> {
     pub fn new(env: &'a Env) -> Self {
-        Self { _env: env }
+        Self { _env: env 
     }
 
     pub fn assert_has_key(&self, _contract_id: &str, key: Val) {
@@ -21,4 +21,5 @@ impl<'a> StorageAssertions<'a> {
         // Compare raw payloads since Val might not implement PartialEq in this version
         assert_eq!(actual.get_payload(), expected.get_payload());
     }
-}
+}/
+//

@@ -112,6 +112,7 @@ pub struct PluginLoader {
     trust_policy: PluginTrustPolicy,
 
     /// Sandbox policy used for capability containment
+    /// Sandbox policy applied before enabling plugin capabilities.
     sandbox_policy: PluginSandboxPolicy,
 }
 
@@ -128,6 +129,19 @@ pub struct PluginTrustPolicy {
     pub allowlist: BTreeSet<String>,
     pub denylist: BTreeSet<String>,
     pub allowed_signers: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSandboxPolicy {
+    pub allow_command_registration: bool,
+}
+
+impl Default for PluginSandboxPolicy {
+    fn default() -> Self {
+        Self {
+            allow_command_registration: true,
+        }
+    }
 }
 
 impl Default for PluginTrustPolicy {
@@ -172,6 +186,14 @@ impl PluginLoader {
 
     /// Create a new plugin loader with an explicit trust policy
     pub fn with_trust_policy(plugin_dir: PathBuf, trust_policy: PluginTrustPolicy) -> Self {
+        Self::with_policies(plugin_dir, trust_policy, PluginSandboxPolicy::default())
+    }
+
+    pub fn with_policies(
+        plugin_dir: PathBuf,
+        trust_policy: PluginTrustPolicy,
+        sandbox_policy: PluginSandboxPolicy,
+    ) -> Self {
         Self {
             plugin_dir,
             trust_policy,
@@ -363,7 +385,9 @@ impl PluginLoader {
         library_bytes: &[u8],
     ) -> PluginResult<PluginTrustAssessment> {
         // Enforce sandbox policy on plugin capabilities BEFORE trust checks
-        if !self.sandbox_policy.allow_command_registration && manifest.capabilities.provides_commands {
+        if !self.sandbox_policy.allow_command_registration
+            && manifest.capabilities.provides_commands
+        {
             return Err(PluginError::SandboxViolation(format!(
                 "Plugin '{}' requires command registration which is disabled by the current sandbox policy.",
                 manifest.name
@@ -518,6 +542,7 @@ mod tests {
 
     fn base_manifest(name: &str) -> PluginManifest {
         PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: name.to_string(),
             version: "1.0.0".to_string(),
             description: "test plugin".to_string(),
@@ -710,9 +735,10 @@ mod tests {
 
     #[test]
     fn sandbox_policy_blocks_command_registration() {
-        let mut sandbox = PluginSandboxPolicy::default();
-        sandbox.allow_command_registration = false;
-        
+        let sandbox = PluginSandboxPolicy {
+            allow_command_registration: false,
+        };
+
         let loader = PluginLoader::with_policies(
             std::env::temp_dir(),
             PluginTrustPolicy::default(),
@@ -726,6 +752,8 @@ mod tests {
             .assess_trust(&manifest, Path::new("command-plugin.so"), b"library")
             .unwrap_err();
 
-        assert!(matches!(err, PluginError::SandboxViolation(msg) if msg.contains("command registration which is disabled")));
+        assert!(
+            matches!(err, PluginError::SandboxViolation(msg) if msg.contains("command registration which is disabled"))
+        );
     }
 }

@@ -12,6 +12,7 @@ use crate::inspector::budget::MemorySummary;
 use crate::output::InvocationReason;
 use crate::runtime::env::DebugEnv;
 use crate::runtime::mocking::{MockCallLogEntry, MockContractDispatcher, MockRegistry};
+use crate::debugger::timeline::StorageMutationMarker;
 use crate::server::protocol::{DynamicTraceEvent, DynamicTraceEventKind};
 use crate::utils::arguments::ArgumentParser;
 use crate::{DebuggerError, Result};
@@ -152,7 +153,7 @@ impl ContractExecutor {
 
         // Track storage changes as accesses
         let storage_after = &record.storage_after;
-        self.track_storage_changes(&storage_before, storage_after);
+        let _mutation_marker = self.track_storage_changes(&storage_before, storage_after);
 
         // Record completed function call
         let result_str = display.clone();
@@ -178,15 +179,18 @@ impl ContractExecutor {
         &mut self,
         storage_before: &HashMap<String, String>,
         storage_after: &HashMap<String, String>,
-    ) {
+    ) -> Option<StorageMutationMarker> {
+        let mut mutated_keys = Vec::new();
         // Track writes (new or modified entries)
         for (key, value) in storage_after {
             if !storage_before.contains_key(key) {
                 // New write
                 self.debug_env.track_storage_write(key, value);
+                mutated_keys.push(key.clone());
             } else if storage_before.get(key) != Some(value) {
                 // Modified write
                 self.debug_env.track_storage_write(key, value);
+                mutated_keys.push(key.clone());
             }
         }
 
@@ -332,6 +336,9 @@ impl ContractExecutor {
                 }
 
                 for (k, v) in map {
+                    if k == "contract_code" || k.contains(':') {
+                        continue;
+                    }
                     let key_json = serde_json::json!({ "type": "symbol", "value": k });
                     let key_val = parse_one_val(&self.env, &key_json)?;
                     let value_json = normalize_numbers(&v)?;

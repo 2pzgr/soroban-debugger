@@ -1,5 +1,4 @@
 use soroban_debugger::debugger::source_map::{SourceLocation, SourceMap};
-use std::collections::HashSet;
 use std::path::Path;
 
 fn uleb(mut value: u32) -> Vec<u8> {
@@ -81,7 +80,7 @@ fn code_entry_ranges(wasm: &[u8]) -> Vec<std::ops::Range<usize>> {
 }
 
 #[test]
-fn resolves_ambiguous_multi_function_line_as_unverified() {
+fn resolves_multi_mapping_line_as_verified_source_location() {
     let wasm = minimal_two_export_wasm();
     let ranges = code_entry_ranges(&wasm);
     assert_eq!(ranges.len(), 2);
@@ -104,18 +103,16 @@ fn resolves_ambiguous_multi_function_line_as_unverified() {
         },
     );
 
-    let exported: HashSet<String> = ["foo".to_string(), "bar".to_string()].into_iter().collect();
-    let resolved =
-        sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[10], &exported, None);
+    let resolved = sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[10], None);
 
     assert_eq!(resolved.len(), 1);
-    assert!(!resolved[0].verified);
-    assert_eq!(resolved[0].reason_code, "AMBIGUOUS");
-    assert!(resolved[0].function.is_none());
+    assert!(resolved[0].verified);
+    assert_eq!(resolved[0].reason_code, "OK");
+    assert_eq!(resolved[0].function.as_deref(), Some("src/contract.rs:10"));
 }
 
 #[test]
-fn resolves_non_entrypoint_line_as_unverified_not_exported() {
+fn resolves_non_entrypoint_line_as_verified_source_location() {
     let wasm = minimal_two_export_wasm();
     let ranges = code_entry_ranges(&wasm);
     assert_eq!(ranges.len(), 2);
@@ -131,13 +128,12 @@ fn resolves_non_entrypoint_line_as_unverified_not_exported() {
         },
     );
 
-    let exported: HashSet<String> = ["foo".to_string()].into_iter().collect();
-    let resolved =
-        sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[20], &exported, None);
+    let resolved = sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[20], None);
 
     assert_eq!(resolved.len(), 1);
-    assert!(!resolved[0].verified);
-    assert_eq!(resolved[0].reason_code, "NOT_EXPORTED");
+    assert!(resolved[0].verified);
+    assert_eq!(resolved[0].reason_code, "OK");
+    assert_eq!(resolved[0].function.as_deref(), Some("src/contract.rs:20"));
 }
 
 #[test]
@@ -157,14 +153,12 @@ fn resolves_to_next_executable_line_when_requested_line_has_no_code() {
         },
     );
 
-    let exported: HashSet<String> = ["foo".to_string(), "bar".to_string()].into_iter().collect();
-    let resolved =
-        sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[30], &exported, None);
+    let resolved = sm.resolve_source_breakpoints(&wasm, Path::new("src/contract.rs"), &[30], None);
 
     assert_eq!(resolved.len(), 1);
     assert!(resolved[0].verified);
     assert_eq!(resolved[0].reason_code, "ADJUSTED");
     assert_eq!(resolved[0].requested_line, 30);
     assert_eq!(resolved[0].line, 31);
-    assert_eq!(resolved[0].function.as_deref(), Some("foo"));
+    assert_eq!(resolved[0].function.as_deref(), Some("src/contract.rs:31"));
 }

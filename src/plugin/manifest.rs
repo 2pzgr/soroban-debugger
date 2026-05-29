@@ -242,6 +242,7 @@ mod tests {
     #[test]
     fn test_valid_semver() {
         let manifest = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             description: "test".to_string(),
@@ -260,6 +261,7 @@ mod tests {
     #[test]
     fn test_invalid_semver() {
         let manifest = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "test".to_string(),
             version: "1.0".to_string(),
             description: "test".to_string(),
@@ -278,6 +280,7 @@ mod tests {
     #[test]
     fn verify_signatures_accepts_valid_manifest_and_library_signatures() {
         let mut manifest = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             description: "test".to_string(),
@@ -312,6 +315,7 @@ mod tests {
     #[test]
     fn verify_signatures_rejects_tampered_library_bytes() {
         let mut manifest = PluginManifest {
+            schema_version: crate::plugin::manifest::MANIFEST_SCHEMA_VERSION.to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             description: "test".to_string(),

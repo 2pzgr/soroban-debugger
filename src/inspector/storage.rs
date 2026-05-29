@@ -49,7 +49,10 @@ impl StorageState {
     ) -> Result<()> {
         let state = StorageState {
             schema_version: default_schema_version(),
-            entries: entries.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            entries: entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         };
         let json = serde_json::to_string_pretty(&state).map_err(|e| {
             DebuggerError::StorageError(format!("Failed to serialize storage state: {}", e))
@@ -172,7 +175,10 @@ impl StorageFilter {
 
 impl StorageQuery {
     pub fn normalized_filter(&self) -> Option<&str> {
-        self.filter.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        self.filter
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
 
     pub fn normalized_jump(&self) -> Option<&str> {
@@ -243,8 +249,9 @@ impl StorageInspector {
         let filtered_len = filtered_entries.len();
         let page_size = query.page_size_or_default();
         let total_pages = filtered_len.max(1).div_ceil(page_size);
-        let jump_match_index =
-            query.normalized_jump().and_then(|jump| Self::find_jump_index(&filtered_entries, jump));
+        let jump_match_index = query
+            .normalized_jump()
+            .and_then(|jump| Self::find_jump_index(&filtered_entries, jump));
         let page = jump_match_index
             .map(|idx| idx / page_size)
             .unwrap_or(query.page.min(total_pages.saturating_sub(1)));
@@ -392,6 +399,13 @@ impl StorageInspector {
     /// Record a write access for a key
     pub fn track_write(&mut self, key: &str) {
         *self.writes.entry(key.to_string()).or_insert(0) += 1;
+    }
+
+    /// Get a sorted list of all keys that have been written to
+    pub fn mutated_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.writes.keys().cloned().collect();
+        keys.sort();
+        keys
     }
 
     /// Analyze access patterns
@@ -698,6 +712,17 @@ pub struct StorageDiff {
 impl StorageDiff {
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.modified.is_empty() && self.deleted.is_empty()
+    }
+
+    /// Extract a sorted list of all keys that were mutated (added, modified, or deleted)
+    pub fn mutated_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.added.keys().cloned()
+            .chain(self.modified.keys().cloned())
+            .chain(self.deleted.iter().cloned())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 }
 
@@ -1145,6 +1170,12 @@ mod tests {
             &("old".to_string(), "new".to_string())
         );
         assert!(diff.deleted.contains(&"key_76".to_string()));
+
+        let mutated = diff.mutated_keys();
+        assert_eq!(mutated.len(), 75);
+        assert!(mutated.contains(&"key_101".to_string()));
+        assert!(mutated.contains(&"key_51".to_string()));
+        assert!(mutated.contains(&"key_76".to_string()));
     }
 
     #[test]

@@ -69,3 +69,18 @@ Once you have identified issues in the report, take the following steps to resol
 2. **Add Defensive Checks:** If a panic or vulnerability is triggered by an unexpected input, add explicit assertions or handle the edge case gracefully in your Rust code.
 3. **Refine Analysis Budgets:** If the exploration hits the `path-cap` before reaching critical code paths, consider increasing the budget caps or restricting the input space (using constraints) to focus the engine on specific contract states.
 4. **Iterate:** After applying your fixes, rerun the symbolic analysis to confirm the vulnerability is resolved and no new regressions were introduced.
+## JSON schema
+
+Machine-readable symbolic reports are emitted with `--format json` and use the shared command envelope:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "command": "symbolic",
+  "status": "success",
+  "result": {},
+  "error": null
+}
+```
+
+The current symbolic report schema is `tests/schemas/symbolic_output.json` and expects envelope `schema_version` `1.0.0`. The `result.metadata` object includes the applied seed or replay token, optional `storage_seed`, budget caps, truncation flags, truncation reasons, and coverage metadata so CI consumers can detect partial exploration and suggest raising `--input-combination-cap`, `--path-cap`, or `--timeout` when needed.

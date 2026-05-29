@@ -35,7 +35,7 @@ Legend:
 | Source / line breakpoints | NO | PARTIAL | The extension maps source line clicks to function boundaries. Execution pauses at the function entry point, not the exact clicked line. |
 | Conditional breakpoints | NO | NO | `supportsConditionalBreakpoints = false` in `initializeRequest`. |
 | Hit-count conditions | NO | NO | `supportsHitConditionalBreakpoints = false` in `initializeRequest`. |
-| Log points | NO | NO | `supportsLogPoints = false` in `initializeRequest`. |
+| Log points | `--log-point <function=message>` | YES | The CLI exposes log-only breakpoints, and the DAP adapter advertises `supportsLogPoints = true` in `initializeRequest`. |
 | Set variable at breakpoint | NO | NO | `supportsSetVariable = false` in `initializeRequest`. Read-only inspection only. |
 
 ---

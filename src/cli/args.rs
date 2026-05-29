@@ -20,10 +20,24 @@ pub fn get_deprecation_warning(deprecated_flag: &str) -> Option<String> {
         .find(|(old, _)| *old == deprecated_flag)
         .map(|(old, new)| {
             format!(
-                "⚠️  Flag '{}' is deprecated. Please use '{}' instead.",
+                " Flag '{}' is deprecated. Please use '{}' instead.",
                 old, new
             )
         })
+}
+
+pub fn warn_deprecated_flags(args: impl Iterator<Item = String>) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut warned = std::collections::HashSet::new();
+    for arg in args {
+        let flag = arg.split('=').next().unwrap_or(&arg);
+        if let Some(warning) = get_deprecation_warning(flag) {
+            if warned.insert(flag.to_string()) {
+                warnings.push(warning);
+            }
+        }
+    }
+    warnings
 }
 
 /// Verbosity level for output control
@@ -71,6 +85,16 @@ pub enum SnapshotCompression {
     None,
     Gzip,
     Zstd,
+}
+
+/// Minimum severity level for security findings.
+/// Used with the `analyze` command to filter results by severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum MinSeverity {
+    #[default]
+    Low,
+    Medium,
+    High,
 }
 
 impl Verbosity {
@@ -135,6 +159,10 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    /// Pretty-print JSON outputs instead of compact JSON
+    #[arg(long, global = true)]
+    pub pretty: bool,
 
     /// Show detailed version information
     #[arg(long)]
@@ -254,13 +282,11 @@ pub struct RunArgs {
     #[arg(
         short,
         long,
+        alias = "wasm",
+        alias = "contract-path",
         required_unless_present_any = ["server", "remote"]
     )]
     pub contract: Option<PathBuf>,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to execute
     #[arg(
@@ -287,12 +313,8 @@ pub struct RunArgs {
     pub log_point: Vec<String>,
 
     /// Network snapshot file to load before execution
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Enable verbose output
     #[arg(short, long)]
@@ -513,20 +535,12 @@ impl RunArgs {
 #[derive(Parser)]
 pub struct InteractiveArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
 
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
-
     /// Network snapshot file to load before starting interactive session
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Function name to execute (staged; use 'continue' inside the session)
     #[arg(short, long)]
@@ -611,21 +625,13 @@ impl InteractiveArgs {
 #[derive(Parser)]
 pub struct ReplArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Network snapshot file to load before starting REPL session
     /// Network snapshot file to load before starting interactive session
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 
     /// Initial storage state as JSON object
     #[arg(short, long)]
@@ -674,12 +680,8 @@ pub struct HistoryPruneArgs {
 #[derive(Parser)]
 pub struct InspectArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Show exported functions
     #[arg(long)]
@@ -737,12 +739,8 @@ pub struct UpgradeCheckArgs {
 #[derive(Parser)]
 pub struct OptimizeArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to analyze (can be specified multiple times)
     #[arg(short, long)]
@@ -756,26 +754,26 @@ pub struct OptimizeArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// Report format: pretty (markdown) or json (structured suggestions/hotspots/metadata)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
+
     /// Initial storage state as JSON object
     #[arg(short, long)]
     pub storage: Option<String>,
 
     /// Network snapshot file to load before analysis
-    #[arg(long)]
+    #[arg(long, alias = "snapshot")]
     pub network_snapshot: Option<PathBuf>,
 
     /// Expected SHA-256 hash of the WASM file. If provided, loading will fail if the computed hash does not match.
     #[arg(long)]
     pub expected_hash: Option<String>,
-
-    /// Deprecated: use --network-snapshot instead
-    #[arg(long, hide = true, alias = "snapshot")]
-    pub snapshot: Option<PathBuf>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, OutputFormat, SymbolicProfile};
+    use super::{Cli, Commands, OutputFormat, SymbolicProfile, MinSeverity};
     use clap::Parser;
 
     #[test]
@@ -973,6 +971,111 @@ mod tests {
         assert_eq!(args.source_map_limit, 5);
         assert_eq!(args.format, OutputFormat::Json);
     }
+
+    #[test]
+    fn run_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "run",
+            "--wasm",
+            "contract.wasm",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Run(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.unwrap().to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn inspect_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "inspect",
+            "--wasm",
+            "contract.wasm",
+        ]).unwrap();
+        let Commands::Inspect(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn optimize_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "optimize",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+        ]).unwrap();
+        let Commands::Optimize(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+
+    #[test]
+    fn profile_accepts_deprecated_wasm_flag() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "profile",
+            "--wasm",
+            "contract.wasm",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Profile(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+    }
+
+    #[test]
+    fn interactive_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "interactive",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+            "--function",
+            "increment",
+        ]).unwrap();
+        let Commands::Interactive(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+
+    #[test]
+    fn repl_accepts_deprecated_wasm_and_snapshot_flags() {
+        let cli = Cli::try_parse_from([
+            "soroban-debug",
+            "repl",
+            "--wasm",
+            "contract.wasm",
+            "--snapshot",
+            "state.json",
+        ]).unwrap();
+        let Commands::Repl(args) = cli.command.unwrap() else { panic!() };
+        assert_eq!(args.contract.to_str().unwrap(), "contract.wasm");
+        assert_eq!(args.network_snapshot.unwrap().to_str().unwrap(), "state.json");
+    }
+
+    #[test]
+    fn replay_accepts_format_flag() {
+        let cli = Cli::parse_from([
+            "soroban-debug",
+            "replay",
+            "trace.json",
+            "--format",
+            "json",
+        ]);
+
+        let Commands::Replay(args) = cli.command.expect("replay command expected") else {
+            panic!("replay command expected");
+        };
+
+        assert_eq!(args.format, OutputFormat::Json);
+        assert_eq!(args.trace_file.to_str().unwrap(), "trace.json");
+    }
 }
 
 #[derive(Parser)]
@@ -998,6 +1101,10 @@ pub struct CompareArgs {
     /// Repeatable. Useful for timestamps, sequence numbers, and similar metadata.
     #[arg(long, value_name = "FIELD")]
     pub ignore_field: Vec<String>,
+
+    /// Output format for the comparison report (pretty or json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 }
 
 /// Arguments for the TUI dashboard subcommand
@@ -1062,12 +1169,8 @@ impl TuiArgs {
 #[derive(Parser)]
 pub struct ProfileArgs {
     /// Path to the contract WASM file
-    #[arg(short, long)]
+    #[arg(short, long, alias = "wasm", alias = "contract-path")]
     pub contract: PathBuf,
-
-    /// Deprecated: use --contract instead
-    #[arg(long, hide = true, alias = "wasm", alias = "contract-path")]
-    pub wasm: Option<PathBuf>,
 
     /// Function name to execute
     #[arg(short, long)]
@@ -1178,9 +1281,17 @@ pub struct ReplayArgs {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// Output format for replay command (pretty, json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
+
     /// Show verbose output during replay
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Output format for the diff report (pretty or json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 }
 
 #[derive(Parser)]
@@ -1196,6 +1307,12 @@ pub struct ServerArgs {
     /// Authentication token (optional, if not provided no auth required)
     #[arg(short, long)]
     pub token: Option<String>,
+
+    /// Enforce the token-strength policy: reject startup if the auth token is
+    /// shorter than 16 characters instead of only warning. Recommended in
+    /// production; a random 32-byte token is ideal.
+    #[arg(long)]
+    pub require_strong_token: bool,
 
     /// TLS certificate file path (optional)
     #[arg(long)]
@@ -1307,11 +1424,15 @@ pub struct RemoteArgs {
 
     /// Maximum number of retry attempts for idempotent requests (ping, inspect, storage).
     ///
+    /// Must be at least 1.  Use 1 to disable retries entirely (one attempt, no retry).
+    ///
     /// Default: 3.
     #[arg(long, value_name = "N", default_value = "3")]
     pub retry_attempts: usize,
 
     /// Base delay in milliseconds between retry attempts (exponential back-off).
+    ///
+    /// Must be greater than 0 and no larger than --retry-max-delay-ms.
     ///
     /// Default: 200 ms.
     #[arg(long, value_name = "MS", default_value = "200")]
@@ -1319,9 +1440,15 @@ pub struct RemoteArgs {
 
     /// Maximum delay in milliseconds between retry attempts.
     ///
+    /// Must be greater than or equal to --retry-base-delay-ms.
+    ///
     /// Default: 2 000 ms.
     #[arg(long, value_name = "MS", default_value = "2000")]
     pub retry_max_delay_ms: u64,
+
+    /// Output format for remote command (pretty, json)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Pretty)]
+    pub format: OutputFormat,
 
     /// Remote operation to perform (default: execute or ping)
     #[command(subcommand)]
@@ -1334,10 +1461,21 @@ pub enum RemoteAction {
     Inspect,
 
     /// Get contract storage state as JSON
-    Storage,
+    Storage(RemoteStorageArgs),
 
     /// Evaluate an expression in the current debug context
     Evaluate(RemoteEvaluateArgs),
+
+    /// Run a preflight check: connect, handshake, auth, and optional TLS validation
+    /// without loading a contract. Suitable for CI health checks and troubleshooting.
+    Preflight(PreflightArgs),
+}
+
+#[derive(Parser)]
+pub struct PreflightArgs {
+    /// Output format (pretty or json)
+    #[arg(long = "output", value_enum, default_value_t = OutputFormat::Pretty)]
+    pub output_format: OutputFormat,
 }
 
 #[derive(Parser)]
@@ -1349,6 +1487,16 @@ pub struct RemoteEvaluateArgs {
     /// Stack frame ID for evaluation context (optional)
     #[arg(long)]
     pub frame_id: Option<u64>,
+}
+
+#[derive(Parser)]
+pub struct RemoteStorageArgs {
+    /// Filter storage output by key pattern (repeatable). Supports:
+    ///   prefix*       — match keys starting with prefix
+    ///   re:<regex>    — match keys by regex
+    ///   exact_key     — match key exactly
+    #[arg(long, value_name = "PATTERN")]
+    pub storage_filter: Vec<String>,
 }
 
 #[derive(Parser)]
@@ -1386,8 +1534,8 @@ pub struct AnalyzeArgs {
     pub disable_rule: Vec<String>,
 
     /// Minimum severity to include: low, medium, or high.
-    #[arg(long, default_value = "low", value_name = "SEVERITY")]
-    pub min_severity: String,
+    #[arg(long, value_enum, default_value_t = MinSeverity::Low)]
+    pub min_severity: MinSeverity,
 }
 
 #[derive(Parser)]

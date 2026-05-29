@@ -39,12 +39,7 @@ impl ReconnectionLog {
     }
 
     /// Record a new reconnection event.
-    pub fn record(
-        &mut self,
-        session_id: &str,
-        disconnect_duration: Duration,
-        was_paused: bool,
-    ) {
+    pub fn record(&mut self, session_id: &str, disconnect_duration: Duration, was_paused: bool) {
         self.events.push(ReconnectionEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: session_id.to_string(),

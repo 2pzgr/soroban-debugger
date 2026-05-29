@@ -224,8 +224,7 @@ impl SnapshotDiff {
         // Fingerprints
         output.push_str(&format!(
             "State Fingerprint: {} → {}\n",
-            self.old_fingerprint,
-            self.new_fingerprint
+            self.old_fingerprint, self.new_fingerprint
         ));
 
         // Ledger changes

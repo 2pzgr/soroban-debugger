@@ -189,6 +189,18 @@ fn parity_shared_breakpoint_flag_exists() {
         .stdout(predicate::str::contains("--breakpoint"));
 }
 
+/// SURFACE: CLI + DAP (shared)
+/// --log-point must appear in run --help. The DAP adapter advertises
+/// supportsLogPoints = true in initializeRequest.
+#[test]
+fn parity_shared_log_point_flag_exists() {
+    soroban_debug()
+        .args(["run", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--log-point"));
+}
+
 // ── CLI-exclusive features: functional acceptance ─────────────────────────
 //
 // These tests confirm that CLI-exclusive flags are accepted by the argument
@@ -557,17 +569,4 @@ fn parity_neither_surface_supports_conditional_breakpoints() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--conditional-breakpoint").not());
-}
-
-/// SURFACE: neither CLI nor DAP
-/// The CLI must not expose --log-point.
-/// The DAP adapter explicitly sets supportsLogPoints = false
-/// in initializeRequest (extensions/vscode/src/dap/adapter.ts).
-#[test]
-fn parity_neither_surface_supports_log_points() {
-    soroban_debug()
-        .args(["run", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--log-point").not());
 }
