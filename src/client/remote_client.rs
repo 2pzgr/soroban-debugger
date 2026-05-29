@@ -951,6 +951,11 @@ impl RemoteClient {
         self.session_id.as_deref()
     }
 
+    /// Returns the protocol version negotiated during the handshake, if any.
+    pub fn selected_protocol_version(&self) -> Option<u32> {
+        self.selected_protocol_version
+    }
+
     fn timeout_for_class(&self, class: RequestClass) -> Duration {
         match class {
             RequestClass::Ping => self.config.timeouts.ping,

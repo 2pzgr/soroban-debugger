@@ -1424,17 +1424,23 @@ pub struct RemoteArgs {
 
     /// Maximum number of retry attempts for idempotent requests (ping, inspect, storage).
     ///
+    /// Must be at least 1.  Use 1 to disable retries entirely (one attempt, no retry).
+    ///
     /// Default: 3.
     #[arg(long, value_name = "N", default_value = "3")]
     pub retry_attempts: usize,
 
     /// Base delay in milliseconds between retry attempts (exponential back-off).
     ///
+    /// Must be greater than 0 and no larger than --retry-max-delay-ms.
+    ///
     /// Default: 200 ms.
     #[arg(long, value_name = "MS", default_value = "200")]
     pub retry_base_delay_ms: u64,
 
     /// Maximum delay in milliseconds between retry attempts.
+    ///
+    /// Must be greater than or equal to --retry-base-delay-ms.
     ///
     /// Default: 2 000 ms.
     #[arg(long, value_name = "MS", default_value = "2000")]
@@ -1459,6 +1465,17 @@ pub enum RemoteAction {
 
     /// Evaluate an expression in the current debug context
     Evaluate(RemoteEvaluateArgs),
+
+    /// Run a preflight check: connect, handshake, auth, and optional TLS validation
+    /// without loading a contract. Suitable for CI health checks and troubleshooting.
+    Preflight(PreflightArgs),
+}
+
+#[derive(Parser)]
+pub struct PreflightArgs {
+    /// Output format (pretty or json)
+    #[arg(long = "output", value_enum, default_value_t = OutputFormat::Pretty)]
+    pub output_format: OutputFormat,
 }
 
 #[derive(Parser)]

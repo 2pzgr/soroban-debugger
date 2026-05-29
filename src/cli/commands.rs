@@ -6,8 +6,9 @@ use crate::analyzer::{
 };
 use crate::cli::args::{
     AnalyzeArgs, CompareArgs, HistoryPruneArgs, InspectArgs, InteractiveArgs, OptimizeArgs,
-    OutputFormat, ProfileArgs, RemoteAction, RemoteArgs, ReplArgs, ReplayArgs, RunArgs,
-    ScenarioArgs, ServerArgs, SymbolicArgs, SymbolicProfile, TuiArgs, UpgradeCheckArgs, Verbosity,
+    OutputFormat, PreflightArgs, ProfileArgs, RemoteAction, RemoteArgs, ReplArgs, ReplayArgs,
+    RunArgs, ScenarioArgs, ServerArgs, SymbolicArgs, SymbolicProfile, TuiArgs, UpgradeCheckArgs,
+    Verbosity,
 };
 use crate::cli::output::write_json_pretty_file;
 use crate::debugger::engine::DebuggerEngine;
@@ -83,10 +84,6 @@ struct DynamicAnalysisMetadata {
 #[derive(serde::Serialize)]
 struct AnalyzeCommandOutput {
     findings: Vec<crate::analyzer::security::SecurityFinding>,
-    /// Rule metadata keyed by rule id (#1272). Lets downstream tools resolve a
-    /// finding's `rule_id` to stable id/name/severity/category/remediation
-    /// fields for filtering. A BTreeMap keeps the JSON ordering deterministic.
-    rules: std::collections::BTreeMap<String, crate::analyzer::security::RuleMetadata>,
     dynamic_analysis: Option<DynamicAnalysisMetadata>,
     warnings: Vec<String>,
     suppressed_count: usize,
@@ -205,96 +202,17 @@ fn symbolic_config_from_args(args: &SymbolicArgs) -> Result<SymbolicConfig> {
     Ok(config)
 }
 
-/// Convert MinSeverity enum to analyzer Severity enum.
-fn convert_min_severity(value: crate::cli::args::MinSeverity) -> crate::analyzer::security::Severity {
-    match value {
-        crate::cli::args::MinSeverity::Low => crate::analyzer::security::Severity::Low,
-        crate::cli::args::MinSeverity::Medium => crate::analyzer::security::Severity::Medium,
-        crate::cli::args::MinSeverity::High => crate::analyzer::security::Severity::High,
+fn parse_min_severity(value: &str) -> Result<crate::analyzer::security::Severity> {
+    match value.to_ascii_lowercase().as_str() {
+        "low" => Ok(crate::analyzer::security::Severity::Low),
+        "medium" | "med" => Ok(crate::analyzer::security::Severity::Medium),
+        "high" => Ok(crate::analyzer::security::Severity::High),
+        other => Err(DebuggerError::InvalidArguments(format!(
+            "Unsupported --min-severity '{}'. Use low, medium, or high.",
+            other
+        ))
+        .into()),
     }
-}
-
-/// Find the closest matching rule IDs using Levenshtein distance.
-fn suggest_rule_ids(unknown: &str, known_rules: &[String], max_distance: usize) -> Vec<String> {
-    use std::cmp;
-    
-    // Calculate Levenshtein distance between two strings
-    let levenshtein = |a: &str, b: &str| {
-        let a_len = a.len();
-        let b_len = b.len();
-        let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
-        
-        for i in 0..=a_len {
-            matrix[i][0] = i;
-        }
-        for j in 0..=b_len {
-            matrix[0][j] = j;
-        }
-        
-        for (i, a_char) in a.chars().enumerate() {
-            for (j, b_char) in b.chars().enumerate() {
-                let cost = if a_char == b_char { 0 } else { 1 };
-                matrix[i + 1][j + 1] = cmp::min(
-                    cmp::min(
-                        matrix[i][j + 1] + 1,  // deletion
-                        matrix[i + 1][j] + 1,  // insertion
-                    ),
-                    matrix[i][j] + cost,       // substitution
-                );
-            }
-        }
-        matrix[a_len][b_len]
-    };
-    
-    let mut suggestions: Vec<_> = known_rules
-        .iter()
-        .map(|rule| {
-            let distance = levenshtein(&unknown.to_lowercase(), &rule.to_lowercase());
-            (distance, rule.clone())
-        })
-        .filter(|(distance, _)| *distance <= max_distance)
-        .collect();
-    
-    suggestions.sort_by_key(|(distance, _)| *distance);
-    suggestions.into_iter().map(|(_, rule)| rule).collect()
-}
-
-/// Validate rule IDs in enable_rules and disable_rules lists.
-fn validate_rule_ids(
-    enable_rules: &[String],
-    disable_rules: &[String],
-    registered_rules: &[String],
-) -> Result<()> {
-    let mut invalid_rules = Vec::new();
-    
-    // Check enable_rules
-    for rule in enable_rules {
-        if !registered_rules.contains(rule) {
-            invalid_rules.push(("enable", rule.clone()));
-        }
-    }
-    
-    // Check disable_rules
-    for rule in disable_rules {
-        if !registered_rules.contains(rule) {
-            invalid_rules.push(("disable", rule.clone()));
-        }
-    }
-    
-    if !invalid_rules.is_empty() {
-        let mut message = String::from("Invalid rule IDs provided:\n");
-        for (filter_type, rule) in &invalid_rules {
-            message.push_str(&format!("  --{}-rule '{}': not found\n", filter_type, rule));
-            let suggestions = suggest_rule_ids(rule, registered_rules, 2);
-            if !suggestions.is_empty() {
-                message.push_str(&format!("    Did you mean: {}?\n", suggestions.join(", ")));
-            }
-        }
-        message.push_str(&format!("\nAvailable rules: {}\n", registered_rules.join(", ")));
-        return Err(DebuggerError::InvalidArguments(message).into());
-    }
-    
-    Ok(())
 }
 
 fn render_security_report(output: &AnalyzeCommandOutput) -> String {
@@ -507,100 +425,14 @@ fn display_instruction_info(engine: &DebuggerEngine) {
     }
 }
 
-/// Parse a step mode from its textual form. The single source of truth for
-/// step-mode parsing across the run and interactive flows (#1263). Unsupported
-/// modes return a clear error instead of silently defaulting, so a typo can't
-/// quietly change stepping behaviour.
-fn parse_step_mode(mode: &str) -> Result<StepMode> {
-    match mode.trim().to_lowercase().as_str() {
-        "into" | "i" => Ok(StepMode::StepInto),
-        "over" | "o" => Ok(StepMode::StepOver),
-        "out" | "u" => Ok(StepMode::StepOut),
-        "block" | "b" => Ok(StepMode::StepBlock),
-        other => Err(crate::DebuggerError::InvalidArguments(format!(
-            "unsupported step mode '{other}'. Supported modes: into, over, out, block."
-        ))
-        .into()),
-    }
-}
-
-/// Recommended/required minimum length for a remote debug auth token (#1262).
-const MIN_REMOTE_TOKEN_LEN: usize = 16;
-
-/// Outcome of the remote-debug token-strength policy (#1262).
-#[derive(Debug, PartialEq, Eq)]
-enum TokenPolicy {
-    Ok,
-    Warn(String),
-    Reject(String),
-}
-
-/// Evaluate the token-strength policy for the remote debug server (#1262).
-/// A token shorter than [`MIN_REMOTE_TOKEN_LEN`] warns by default, or is
-/// rejected when `require_strong` is set. No token is allowed (auth disabled).
-fn evaluate_token_policy(token: Option<&str>, require_strong: bool) -> TokenPolicy {
-    match token {
-        None => TokenPolicy::Ok,
-        Some(t) if t.trim().len() >= MIN_REMOTE_TOKEN_LEN => TokenPolicy::Ok,
-        Some(_) => {
-            let msg = format!(
-                "Remote debug token is shorter than {MIN_REMOTE_TOKEN_LEN} characters. \
-                 Prefer at least {MIN_REMOTE_TOKEN_LEN} characters, ideally a random 32-byte token."
-            );
-            if require_strong {
-                TokenPolicy::Reject(format!(
-                    "{msg} Refusing to start because --require-strong-token is set."
-                ))
-            } else {
-                TokenPolicy::Warn(msg)
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod step_and_token_tests {
-    use super::*;
-    use crate::debugger::instruction_pointer::StepMode;
-
-    #[test]
-    fn parse_step_mode_accepts_supported_modes_and_aliases() {
-        assert_eq!(parse_step_mode("into").unwrap(), StepMode::StepInto);
-        assert_eq!(parse_step_mode("OVER").unwrap(), StepMode::StepOver);
-        assert_eq!(parse_step_mode(" out ").unwrap(), StepMode::StepOut);
-        assert_eq!(parse_step_mode("b").unwrap(), StepMode::StepBlock);
-    }
-
-    #[test]
-    fn parse_step_mode_rejects_unsupported_mode() {
-        let err = parse_step_mode("sideways").unwrap_err().to_string();
-        assert!(err.contains("unsupported step mode"), "got: {err}");
-        assert!(err.contains("sideways"), "got: {err}");
-    }
-
-    #[test]
-    fn token_policy_ok_when_absent_or_long_enough() {
-        assert_eq!(evaluate_token_policy(None, true), TokenPolicy::Ok);
-        assert_eq!(
-            evaluate_token_policy(Some("0123456789abcdef"), true),
-            TokenPolicy::Ok
-        );
-    }
-
-    #[test]
-    fn token_policy_warns_by_default_for_short_token() {
-        assert!(matches!(
-            evaluate_token_policy(Some("short"), false),
-            TokenPolicy::Warn(_)
-        ));
-    }
-
-    #[test]
-    fn token_policy_rejects_short_token_when_enforcement_enabled() {
-        assert!(matches!(
-            evaluate_token_policy(Some("short"), true),
-            TokenPolicy::Reject(_)
-        ));
+/// Parse step mode from string
+fn parse_step_mode(mode: &str) -> StepMode {
+    match mode.to_lowercase().as_str() {
+        "into" => StepMode::StepInto,
+        "over" => StepMode::StepOver,
+        "out" => StepMode::StepOut,
+        "block" => StepMode::StepBlock,
+        _ => StepMode::StepInto, // Default
     }
 }
 
@@ -682,7 +514,7 @@ fn run_batch(args: &RunArgs, batch_file: &std::path::Path) -> Result<()> {
             "summary": summary,
         });
         logging::log_display(
-            crate::output::to_json_string(&output).map_err(|e| {
+            serde_json::to_string_pretty(&output).map_err(|e| {
                 DebuggerError::FileError(format!("Failed to serialize output: {}", e))
             })?,
             logging::LogLevel::Info,
@@ -711,7 +543,6 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
             host: args.host,
             port: args.port,
             token: args.token,
-            require_strong_token: false,
             tls_cert: args.tls_cert,
             tls_key: args.tls_key,
             repeat: args.repeat,
@@ -742,7 +573,6 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
                 retry_attempts: 3,
                 retry_base_delay_ms: 200,
                 retry_max_delay_ms: 2000,
-                format: if args.is_json_output() { crate::cli::args::OutputFormat::Json } else { crate::cli::args::OutputFormat::Pretty },
                 action: None,
             },
             verbosity,
@@ -876,7 +706,7 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         engine.enable_instruction_debug(&wasm_bytes)?;
 
         if args.step_instructions {
-            let step_mode = parse_step_mode(&args.step_mode)?;
+            let step_mode = parse_step_mode(&args.step_mode);
             print_info(format!(
                 "Starting instruction stepping in '{}' mode",
                 args.step_mode
@@ -1133,14 +963,14 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
 
         let output = crate::output::VersionedOutput::success("run", result_obj);
 
-        match crate::output::to_json_string(&output) {
+        match serde_json::to_string_pretty(&output) {
             Ok(json) => println!("{}", json),
             Err(e) => {
                 let err_output = crate::output::VersionedOutput::<serde_json::Value>::error(
                     "run",
                     format!("Failed to serialize output: {}", e),
                 );
-                if let Ok(err_json) = crate::output::to_json_string(&err_output) {
+                if let Ok(err_json) = serde_json::to_string_pretty(&err_output) {
                     println!("{}", err_json);
                 }
             }
@@ -1223,31 +1053,13 @@ pub fn run(args: RunArgs, verbosity: Verbosity) -> Result<()> {
         };
 
         let mut pauses = Vec::new();
-        // Record the actual classified pause reason (breakpoint / step_boundary /
-        // panic / end_of_execution / user_interrupt) from engine state rather than
-        // hardcoding "breakpoint" (#1264), so the exported timeline explains why
-        // execution paused.
-        let classified_reason = engine
-            .state()
-            .lock()
-            .ok()
-            .and_then(|s| s.pause_reason())
-            .map(|r| r.as_str().to_string());
-        if let Some(reason) = classified_reason {
-            pauses.push(TimelinePausePoint {
-                index: 0,
-                reason,
-                location: None,
-                call_stack: stack_summary.clone(),
-            });
-        } else if engine.is_paused() && args.breakpoint.iter().any(|bp| bp == function) {
-            // Paused at the entry breakpoint without a classified reason (prior behavior).
+        let hit_entry_breakpoint = args.breakpoint.iter().any(|bp| bp == function);
+        if engine.is_paused() && hit_entry_breakpoint {
             pauses.push(TimelinePausePoint {
                 index: 0,
                 reason: "breakpoint".to_string(),
                 location: None,
                 call_stack: stack_summary.clone(),
-                storage_mutation,
             });
         }
 
@@ -1582,7 +1394,7 @@ pub fn upgrade_check(args: UpgradeCheckArgs) -> Result<()> {
     let output = match args.output.as_str() {
         "json" => {
             let envelope = crate::output::VersionedOutput::success("upgrade-check", &report);
-            crate::output::to_json_string(&envelope)
+            serde_json::to_string_pretty(&envelope)
                 .map_err(|e| miette::miette!("Failed to serialize report: {}", e))?
         }
         _ => format_text_report(&report),
@@ -1881,80 +1693,10 @@ pub fn optimize(args: OptimizeArgs, _verbosity: Verbosity) -> Result<()> {
 
     let contract_path_str = args.contract.to_string_lossy().to_string();
     let report = optimizer.generate_report(&contract_path_str);
-    // Render in the requested format. JSON exposes structured suggestions,
-    // per-function hotspots, and metadata; pretty stays markdown. We build a
-    // dedicated serializable view rather than deriving Serialize across the
-    // whole profiler graph.
-    let rendered = match args.format {
-        crate::cli::args::OutputFormat::Json => {
-            #[derive(serde::Serialize)]
-            struct Hotspot<'a> {
-                function: &'a str,
-                total_cpu: u64,
-                total_memory: u64,
-            }
-            #[derive(serde::Serialize)]
-            struct Suggestion<'a> {
-                category: &'a str,
-                title: &'a str,
-                description: &'a str,
-                estimated_cpu_savings: u64,
-                estimated_memory_savings: u64,
-                location: &'a str,
-                priority: String,
-            }
-            #[derive(serde::Serialize)]
-            struct OptimizeJsonReport<'a> {
-                contract_path: &'a str,
-                total_cpu: u64,
-                total_memory: u64,
-                potential_cpu_savings: u64,
-                potential_memory_savings: u64,
-                suggestions: Vec<Suggestion<'a>>,
-                hotspots: Vec<Hotspot<'a>>,
-            }
-
-            let view = OptimizeJsonReport {
-                contract_path: &report.contract_path,
-                total_cpu: report.total_cpu,
-                total_memory: report.total_memory,
-                potential_cpu_savings: report.potential_cpu_savings,
-                potential_memory_savings: report.potential_memory_savings,
-                suggestions: report
-                    .suggestions
-                    .iter()
-                    .map(|s| Suggestion {
-                        category: &s.category,
-                        title: &s.title,
-                        description: &s.description,
-                        estimated_cpu_savings: s.estimated_cpu_savings,
-                        estimated_memory_savings: s.estimated_memory_savings,
-                        location: &s.location,
-                        priority: s.priority.to_string(),
-                    })
-                    .collect(),
-                hotspots: report
-                    .functions
-                    .iter()
-                    .map(|f| Hotspot {
-                        function: &f.name,
-                        total_cpu: f.total_cpu,
-                        total_memory: f.total_memory,
-                    })
-                    .collect(),
-            };
-            crate::output::to_json_string(&view).map_err(|e| {
-                DebuggerError::FileError(format!(
-                    "Failed to serialize optimization report as JSON: {}",
-                    e
-                ))
-            })?
-        }
-        crate::cli::args::OutputFormat::Pretty => optimizer.generate_markdown_report(&report),
-    };
+    let markdown = optimizer.generate_markdown_report(&report);
 
     if let Some(output_path) = &args.output {
-        fs::write(output_path, &rendered).map_err(|e| {
+        fs::write(output_path, &markdown).map_err(|e| {
             DebuggerError::FileError(format!(
                 "Failed to write report to {:?}: {}",
                 output_path, e
@@ -1966,7 +1708,7 @@ pub fn optimize(args: OptimizeArgs, _verbosity: Verbosity) -> Result<()> {
         ));
         logging::log_optimization_report(&output_path.to_string_lossy());
     } else {
-        logging::log_display(&rendered, logging::LogLevel::Info);
+        logging::log_display(&markdown, logging::LogLevel::Info);
     }
 
     Ok(())
@@ -2040,7 +1782,7 @@ pub fn profile(args: ProfileArgs) -> Result<()> {
         crate::cli::args::ProfileExportFormat::Json => {
             // Export as JSON with basic metrics
             let func_names: Vec<String> = report.functions.iter().map(|f| f.name.clone()).collect();
-            crate::output::to_json_string(&serde_json::json!({
+            serde_json::to_string_pretty(&serde_json::json!({
                 "contract": contract_path_str,
                 "functions": func_names,
                 "total_cpu": report.total_cpu,
@@ -2095,15 +1837,7 @@ pub fn compare(args: CompareArgs) -> Result<()> {
         args.ignore_field.clone(),
     )?;
     let report = crate::compare::CompareEngine::compare_with_filters(&trace_a, &trace_b, &filters);
-    let rendered = match args.format {
-        OutputFormat::Json => {
-            let envelope = crate::output::VersionedOutput::success("compare", &report);
-            serde_json::to_string_pretty(&envelope).map_err(|e| {
-                DebuggerError::FileError(format!("Failed to serialize comparison report: {}", e))
-            })?
-        }
-        OutputFormat::Pretty => crate::compare::CompareEngine::render_report(&report),
-    };
+    let rendered = crate::compare::CompareEngine::render_report(&report);
 
     if let Some(output_path) = &args.output {
         fs::write(output_path, &rendered).map_err(|e| {
@@ -2123,25 +1857,7 @@ pub fn compare(args: CompareArgs) -> Result<()> {
 /// Execute the replay command.
 /// Execute the replay command.
 pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
-    let is_json = args.format == crate::cli::args::OutputFormat::Json;
-    if !is_json {
-        print_info(format!("Loading trace file: {:?}", args.trace_file));
-    }
-    // Fail fast on malformed or unsupported-schema-version traces (#1288).
-    let raw_trace: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&args.trace_file).map_err(|e| {
-            DebuggerError::FileError(format!(
-                "Failed to read trace file {:?}: {}",
-                args.trace_file, e
-            ))
-        })?)
-        .map_err(|e| {
-            DebuggerError::FileError(format!(
-                "Failed to parse trace file {:?} as JSON: {}",
-                args.trace_file, e
-            ))
-        })?;
-    crate::compare::trace::validate_trace_schema(&raw_trace)?;
+    print_info(format!("Loading trace file: {:?}", args.trace_file));
     let original_trace = crate::compare::ExecutionTrace::from_file(&args.trace_file)?;
 
     // Determine which contract to use
@@ -2156,9 +1872,7 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
         .into());
     };
 
-    if !is_json {
-        print_info(format!("Loading contract: {:?}", contract_path));
-    }
+    print_info(format!("Loading contract: {:?}", contract_path));
     let wasm_bytes = fs::read(&contract_path).map_err(|e| {
         DebuggerError::WasmLoadError(format!(
             "Failed to read WASM file at {:?}: {}",
@@ -2166,12 +1880,10 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
         ))
     })?;
 
-    if !is_json {
-        print_success(format!(
-            "Contract loaded successfully ({} bytes)",
-            wasm_bytes.len()
-        ));
-    }
+    print_success(format!(
+        "Contract loaded successfully ({} bytes)",
+        wasm_bytes.len()
+    ));
 
     // Extract function and args from trace
     let function = original_trace.function.as_ref().ok_or_else(|| {
@@ -2184,17 +1896,15 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     let replay_steps = args.replay_until.unwrap_or(usize::MAX);
     let is_partial_replay = args.replay_until.is_some();
 
-    if !is_json {
-        if is_partial_replay {
-            print_info(format!("Replaying up to step {}", replay_steps));
-        } else {
-            print_info("Replaying full execution");
-        }
+    if is_partial_replay {
+        print_info(format!("Replaying up to step {}", replay_steps));
+    } else {
+        print_info("Replaying full execution");
+    }
 
-        print_info(format!("Function: {}", function));
-        if let Some(a) = args_str {
-            print_info(format!("Arguments: {}", a));
-        }
+    print_info(format!("Function: {}", function));
+    if let Some(a) = args_str {
+        print_info(format!("Arguments: {}", a));
     }
 
     // Set up initial storage from trace
@@ -2208,9 +1918,7 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     };
 
     // Execute the contract
-    if !is_json {
-        print_info("\n--- Replaying Execution ---\n");
-    }
+    print_info("\n--- Replaying Execution ---\n");
     let mut executor = ContractExecutor::new(wasm_bytes)?;
 
     if let Some(storage) = initial_storage {
@@ -2222,10 +1930,8 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     logging::log_execution_start(function, args_str);
     let replayed_result = engine.execute(function, args_str)?;
 
-    if !is_json {
-        print_success("\n--- Replay Complete ---\n");
-        print_success(format!("Replayed Result: {:?}", replayed_result));
-    }
+    print_success("\n--- Replay Complete ---\n");
+    print_success(format!("Replayed Result: {:?}", replayed_result));
     logging::log_execution_complete(&replayed_result);
 
     // Build execution trace from the replay
@@ -2252,45 +1958,23 @@ pub fn replay(args: ReplayArgs, verbosity: Verbosity) -> Result<()> {
     }
 
     // Compare results
-    if !is_json {
-        print_info("\n--- Comparison ---");
-    }
+    print_info("\n--- Comparison ---");
     let report = crate::compare::CompareEngine::compare(&truncated_original, &replayed_trace);
+    let rendered = crate::compare::CompareEngine::render_report(&report);
 
-    if is_json {
-        let envelope = crate::output::VersionedOutput::success("replay", &report);
-        let rendered = crate::output::to_json_string(&envelope).map_err(|e| {
-            DebuggerError::FileError(format!("Failed to serialize replay report: {}", e))
+    if let Some(output_path) = &args.output {
+        std::fs::write(output_path, &rendered).map_err(|e| {
+            DebuggerError::FileError(format!(
+                "Failed to write report to {:?}: {}",
+                output_path, e
+            ))
         })?;
-
-        if let Some(output_path) = &args.output {
-            std::fs::write(output_path, &rendered).map_err(|e| {
-                DebuggerError::FileError(format!(
-                    "Failed to write report to {:?}: {}",
-                    output_path, e
-                ))
-            })?;
-            print_success(format!("\nReplay report written to: {:?}", output_path));
-        } else {
-            println!("{}", rendered);
-        }
+        print_success(format!("\nReplay report written to: {:?}", output_path));
     } else {
-        let rendered = crate::compare::CompareEngine::render_report(&report);
-
-        if let Some(output_path) = &args.output {
-            std::fs::write(output_path, &rendered).map_err(|e| {
-                DebuggerError::FileError(format!(
-                    "Failed to write report to {:?}: {}",
-                    output_path, e
-                ))
-            })?;
-            print_success(format!("\nReplay report written to: {:?}", output_path));
-        } else {
-            logging::log_display(rendered, logging::LogLevel::Info);
-        }
+        logging::log_display(rendered, logging::LogLevel::Info);
     }
 
-    if !is_json && verbosity == Verbosity::Verbose {
+    if verbosity == Verbosity::Verbose {
         print_verbose("\n--- Call Sequence (Original) ---");
         for (i, call) in original_trace.call_sequence.iter().enumerate() {
             let indent = "  ".repeat(call.depth as usize);
@@ -2316,19 +2000,16 @@ pub fn server(args: ServerArgs) -> Result<()> {
         "Starting remote debug server on {}:{}",
         args.host, args.port
     ));
-    if args.token.is_some() {
+    if let Some(token) = &args.token {
         print_info("Token authentication enabled");
+        if token.trim().len() < 16 {
+            print_warning(
+                "Remote debug token is shorter than 16 characters. Prefer at least 16 characters \
+                 and ideally a random 32-byte token.",
+            );
+        }
     } else {
         print_info("Token authentication disabled");
-    }
-    // #1262: apply the token-strength policy. Warn by default; reject startup when
-    // --require-strong-token is set and the token is too short.
-    match evaluate_token_policy(args.token.as_deref(), args.require_strong_token) {
-        TokenPolicy::Ok => {}
-        TokenPolicy::Warn(msg) => print_warning(&msg),
-        TokenPolicy::Reject(msg) => {
-            return Err(crate::DebuggerError::InvalidArguments(msg).into());
-        }
     }
     if args.tls_cert.is_some() || args.tls_key.is_some() {
         print_info("TLS enabled");
@@ -2357,12 +2038,34 @@ pub fn server(args: ServerArgs) -> Result<()> {
 }
 
 /// Connect to remote debug server
-pub fn remote(args: RemoteArgs, _verbosity: Verbosity) -> Result<()> {
-    let is_json = args.format == crate::cli::args::OutputFormat::Json;
-
-    if !is_json {
-        print_info(format!("Connecting to remote debugger at {}", args.remote));
+pub fn remote(args: RemoteArgs, verbosity: Verbosity) -> Result<()> {
+    // #1257 — validate retry configuration before attempting any connection.
+    if args.retry_attempts == 0 {
+        return Err(miette::miette!(
+            "Invalid --retry-attempts value: 0 is not allowed.\n\
+             \n\
+             At least one attempt is required for the remote command to make any request.\n\
+             Use --retry-attempts 1 to disable retries (single attempt, no retry on failure).\n\
+             \n\
+             Tip: the default is 3 attempts with exponential back-off."
+        ));
     }
+    if args.retry_max_delay_ms < args.retry_base_delay_ms {
+        return Err(miette::miette!(
+            "Invalid retry delay configuration: --retry-max-delay-ms ({max}ms) is less than \
+             --retry-base-delay-ms ({base}ms).\n\
+             \n\
+             The maximum back-off delay must be greater than or equal to the base delay.\n\
+             Suggestion: set --retry-max-delay-ms to at least {base}ms, or reduce \
+             --retry-base-delay-ms.\n\
+             \n\
+             Defaults: --retry-base-delay-ms 200  --retry-max-delay-ms 2000",
+            base = args.retry_base_delay_ms,
+            max = args.retry_max_delay_ms,
+        ));
+    }
+
+    print_info(format!("Connecting to remote debugger at {}", args.remote));
 
     // Build per-request timeouts, falling back to the general --timeout-ms for
     // the specialised classes when the user did not set them explicitly.
@@ -2402,146 +2105,211 @@ pub fn remote(args: RemoteArgs, _verbosity: Verbosity) -> Result<()> {
             }
         })?;
 
-    if !is_json {
-        if let Some(info) = client.session_info() {
-            print_info(format!(
-                "Remote session: {} (created {}, label={})",
-                info.session_id,
-                info.created_at,
-                info.label.as_deref().unwrap_or("<none>")
-            ));
-        }
+    // #1255 — show the negotiated protocol version in verbose output.
+    if let Some(proto) = client.selected_protocol_version() {
+        print_verbose(format!("Protocol version negotiated: {}", proto));
+    }
+
+    if let Some(info) = client.session_info() {
+        print_info(format!(
+            "Remote session: {} (created {}, label={})",
+            info.session_id,
+            info.created_at,
+            info.label.as_deref().unwrap_or("<none>")
+        ));
     }
 
     if let Some(contract) = &args.contract {
-        if !is_json {
-            print_info(format!("Loading contract: {:?}", contract));
-        }
+        print_info(format!("Loading contract: {:?}", contract));
         let size = client.load_contract(&contract.to_string_lossy())?;
-        if !is_json {
-            print_success(format!("Contract loaded: {} bytes", size));
-        }
+        print_success(format!("Contract loaded: {} bytes", size));
     }
 
     if let Some(action) = &args.action {
         return match action {
             RemoteAction::Inspect => {
                 let (function, step_count, paused, call_stack, pause_reason) = client.inspect()?;
-                if is_json {
-                    #[derive(serde::Serialize)]
-                    struct InspectJsonResult {
-                        function: Option<String>,
-                        step_count: u64,
-                        paused: bool,
-                        pause_reason: Option<String>,
-                        call_stack: Vec<String>,
+                println!("Function: {}", function.as_deref().unwrap_or("<none>"));
+                println!("Step count: {}", step_count);
+                println!("Paused: {}", paused);
+                if let Some(reason) = pause_reason {
+                    println!("Pause reason: {}", reason);
+                }
+                // #1255 — include protocol in verbose inspect output.
+                if verbosity == Verbosity::Verbose {
+                    if let Some(proto) = client.selected_protocol_version() {
+                        println!("Protocol version: {}", proto);
                     }
-                    let result = InspectJsonResult {
-                        function,
-                        step_count,
-                        paused,
-                        pause_reason,
-                        call_stack,
-                    };
-                    let envelope = crate::output::VersionedOutput::success("remote/inspect", result);
-                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
-                        DebuggerError::FileError(format!("Failed to serialize inspect JSON output: {}", e))
-                    })?);
-                } else {
-                    println!("Function: {}", function.as_deref().unwrap_or("<none>"));
-                    println!("Step count: {}", step_count);
-                    println!("Paused: {}", paused);
-                    if let Some(reason) = pause_reason {
-                        println!("Pause reason: {}", reason);
-                    }
-                    if !call_stack.is_empty() {
-                        println!("Call stack:");
-                        for frame in &call_stack {
-                            println!("  {}", frame);
-                        }
+                }
+                if !call_stack.is_empty() {
+                    println!("Call stack:");
+                    for frame in &call_stack {
+                        println!("  {}", frame);
                     }
                 }
                 Ok(())
             }
             RemoteAction::Storage => {
                 let storage_json = client.get_storage()?;
-                if is_json {
-                    let parsed: serde_json::Value = serde_json::from_str(&storage_json).unwrap_or(serde_json::Value::Null);
-                    let envelope = crate::output::VersionedOutput::success("remote/storage", parsed);
-                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
-                        DebuggerError::FileError(format!("Failed to serialize storage JSON output: {}", e))
-                    })?);
-                } else {
-                    println!("{}", storage_json);
-                }
+                println!("{}", storage_json);
                 Ok(())
             }
             RemoteAction::Evaluate(eval_args) => {
                 let (result, result_type) =
                     client.evaluate(&eval_args.expression, eval_args.frame_id)?;
-                if is_json {
-                    #[derive(serde::Serialize)]
-                    struct EvaluateJsonResult {
-                        result: String,
-                        result_type: Option<String>,
-                    }
-                    let envelope = crate::output::VersionedOutput::success("remote/evaluate", EvaluateJsonResult { result, result_type });
-                    println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
-                        DebuggerError::FileError(format!("Failed to serialize evaluate JSON output: {}", e))
-                    })?);
+                if let Some(rtype) = &result_type {
+                    println!("[{}] {}", rtype, result);
                 } else {
-                    if let Some(rtype) = &result_type {
-                        println!("[{}] {}", rtype, result);
-                    } else {
-                        println!("{}", result);
-                    }
+                    println!("{}", result);
                 }
                 Ok(())
+            }
+            RemoteAction::Preflight(preflight_args) => {
+                run_remote_preflight(&args, preflight_args, client)
             }
         };
     }
 
     if let Some(function) = &args.function {
-        if is_json {
-            let result = client.execute(function, args.args.as_deref())?;
-            #[derive(serde::Serialize)]
-            struct ExecuteJsonResult {
-                result: String,
-            }
-            let envelope = crate::output::VersionedOutput::success("remote/execute", ExecuteJsonResult { result });
-            println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
-                DebuggerError::FileError(format!("Failed to serialize execute JSON output: {}", e))
-            })?);
-        } else {
-            print_info(format!("Executing function: {}", function));
-            let result = client.execute(function, args.args.as_deref())?;
-            print_success(format!("Result: {}", result));
-        }
+        print_info(format!("Executing function: {}", function));
+        let result = client.execute(function, args.args.as_deref())?;
+        print_success(format!("Result: {}", result));
         return Ok(());
     }
 
     client.ping()?;
-    if is_json {
-        #[derive(serde::Serialize)]
-        struct PingJsonResult {
-            reachable: bool,
-            message: String,
+    print_success("Remote debugger is reachable");
+    Ok(())
+}
+/// Output produced by the `remote preflight` subcommand.
+#[derive(Debug, serde::Serialize)]
+struct PreflightReport {
+    address: String,
+    connect: PreflightCheck,
+    handshake: PreflightCheck,
+    protocol_version: Option<u32>,
+    auth: Option<PreflightCheck>,
+    tls: Option<PreflightCheck>,
+    ping: PreflightCheck,
+    overall: bool,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct PreflightCheck {
+    ok: bool,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggestion: Option<String>,
+}
+
+impl PreflightCheck {
+    fn ok(message: impl Into<String>) -> Self {
+        Self { ok: true, message: message.into(), suggestion: None }
+    }
+    fn err(message: impl Into<String>, suggestion: impl Into<String>) -> Self {
+        Self {
+            ok: false,
+            message: message.into(),
+            suggestion: Some(suggestion.into()),
         }
-        let envelope = crate::output::VersionedOutput::success(
-            "remote/ping",
-            PingJsonResult {
-                reachable: true,
-                message: "Remote debugger is reachable".to_string(),
-            },
-        );
-        println!("{}", crate::output::to_json_string(&envelope).map_err(|e| {
-            DebuggerError::FileError(format!("Failed to serialize ping JSON output: {}", e))
-        })?);
+    }
+}
+
+/// Implements `remote preflight` (#1254): checks connect, handshake, auth, and TLS
+/// without loading any contract.
+fn run_remote_preflight(
+    args: &RemoteArgs,
+    preflight_args: &PreflightArgs,
+    mut client: crate::client::RemoteClient,
+) -> Result<()> {
+    // The client was already successfully connected and the handshake completed —
+    // `connect_with_config` performs handshake and auth internally, so we just
+    // need to record the outcomes and then ping to confirm the channel is live.
+    let connect_check = PreflightCheck::ok(format!("TCP connection established to {}", args.remote));
+
+    let handshake_check = PreflightCheck::ok("Protocol handshake succeeded");
+    let protocol_version = client.selected_protocol_version();
+
+    let auth_check = if args.token.is_some() {
+        Some(PreflightCheck::ok("Authentication succeeded"))
     } else {
-        print_success("Remote debugger is reachable");
+        None
+    };
+
+    let tls_check = if args.tls_cert.is_some() || args.tls_key.is_some() || args.tls_ca.is_some() {
+        Some(PreflightCheck::ok("TLS handshake succeeded"))
+    } else {
+        None
+    };
+
+    // A final ping confirms end-to-end liveness.
+    let ping_check = match client.ping() {
+        Ok(_) => PreflightCheck::ok("End-to-end ping succeeded"),
+        Err(e) => PreflightCheck::err(
+            format!("End-to-end ping failed: {}", e),
+            "Verify the server process is running and the port is reachable. \
+             Use --connect-timeout-ms to extend the TCP window if the server is slow to respond.",
+        ),
+    };
+    let overall = ping_check.ok;
+
+    let report = PreflightReport {
+        address: args.remote.clone(),
+        connect: connect_check,
+        handshake: handshake_check,
+        protocol_version,
+        auth: auth_check,
+        tls: tls_check,
+        ping: ping_check,
+        overall,
+    };
+
+    if preflight_args.output_format == OutputFormat::Json {
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|e| miette::miette!("Failed to serialize preflight report: {}", e))?;
+        println!("{}", json);
+        return Ok(());
+    }
+
+    // Pretty output
+    let check = |c: &PreflightCheck| {
+        if c.ok {
+            println!("  [PASS] {}", c.message);
+        } else {
+            println!("  [FAIL] {}", c.message);
+            if let Some(ref hint) = c.suggestion {
+                println!("         Suggestion: {}", hint);
+            }
+        }
+    };
+
+    println!("Preflight check: {}", report.address);
+    println!();
+    check(&report.connect);
+    check(&report.handshake);
+    if let Some(proto) = report.protocol_version {
+        println!("  [INFO] Negotiated protocol version: {}", proto);
+    }
+    if let Some(ref a) = report.auth {
+        check(a);
+    } else {
+        println!("  [SKIP] Auth (no --token provided)");
+    }
+    if let Some(ref t) = report.tls {
+        check(t);
+    } else {
+        println!("  [SKIP] TLS (no TLS flags provided)");
+    }
+    check(&report.ping);
+    println!();
+    if overall {
+        print_success("Preflight passed.");
+    } else {
+        println!("Preflight FAILED. Check the items above for actionable suggestions.");
     }
     Ok(())
 }
+
 /// Launch interactive debugger UI
 pub fn interactive(args: InteractiveArgs, _verbosity: Verbosity) -> Result<()> {
     print_info(format!("Loading contract: {:?}", args.contract));
@@ -2613,7 +2381,7 @@ pub fn interactive(args: InteractiveArgs, _verbosity: Verbosity) -> Result<()> {
         engine.enable_instruction_debug(&wasm_bytes)?;
 
         if args.step_instructions {
-            let step_mode = parse_step_mode(&args.step_mode)?;
+            let step_mode = parse_step_mode(&args.step_mode);
             engine.start_instruction_stepping(step_mode)?;
         }
     }
@@ -2708,7 +2476,7 @@ pub fn inspect(args: InspectArgs, _verbosity: Verbosity) -> Result<()> {
         let envelope = crate::output::VersionedOutput::success("inspect", result);
         println!(
             "{}",
-            crate::output::to_json_string(&envelope).map_err(|e| {
+            serde_json::to_string_pretty(&envelope).map_err(|e| {
                 DebuggerError::FileError(format!("Failed to serialize inspect JSON output: {}", e))
             })?
         );
@@ -2812,7 +2580,7 @@ fn inspect_source_map_diagnostics(args: &InspectArgs, wasm_bytes: &[u8]) -> Resu
                 contract: args.contract.display().to_string(),
                 source_map: report,
             };
-            let pretty = crate::output::to_json_string(&output).map_err(|e| {
+            let pretty = serde_json::to_string_pretty(&output).map_err(|e| {
                 DebuggerError::ExecutionError(format!(
                     "Failed to serialize source-map diagnostics JSON output: {e}"
                 ))
@@ -2891,7 +2659,7 @@ pub fn symbolic(args: SymbolicArgs, _verbosity: Verbosity) -> Result<()> {
             let envelope = crate::output::VersionedOutput::success("symbolic", &report);
             println!(
                 "{}",
-                crate::output::to_json_string(&envelope).map_err(|e| {
+                serde_json::to_string_pretty(&envelope).map_err(|e| {
                     DebuggerError::FileError(format!("Failed to serialize symbolic report: {}", e))
                 })?
             );
@@ -2916,7 +2684,7 @@ pub fn symbolic(args: SymbolicArgs, _verbosity: Verbosity) -> Result<()> {
             wasm_file.sha256_hash.clone(),
             Some(args.contract.to_string_lossy().to_string()),
         );
-        let serialized = crate::output::to_json_string(&bundle).map_err(|e| {
+        let serialized = serde_json::to_string_pretty(&bundle).map_err(|e| {
             DebuggerError::FileError(format!("Failed to serialize replay bundle to JSON: {}", e))
         })?;
         fs::write(bundle_path, serialized).map_err(|e| {
@@ -2986,20 +2754,10 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
             analyzer = analyzer.load_suppressions_from_file(&supp_path)?;
         }
     }
-    // Get registered rule IDs for validation
-    let registered_rules: Vec<String> = analyzer
-        .get_rules()
-        .iter()
-        .map(|rule| rule.id().to_string())
-        .collect();
-    
-    // Validate rule IDs
-    validate_rule_ids(&args.enable_rule, &args.disable_rule, &registered_rules)?;
-    
     let filter = crate::analyzer::security::AnalyzerFilter {
         enable_rules: args.enable_rule.clone(),
         disable_rules: args.disable_rule.clone(),
-        min_severity: convert_min_severity(args.min_severity),
+        min_severity: parse_min_severity(&args.min_severity)?,
     };
     let contract_path = args.contract.to_string_lossy().to_string();
     let report = analyzer.analyze(
@@ -3011,7 +2769,6 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
     )?;
     let output = AnalyzeCommandOutput {
         findings: report.findings,
-        rules: report.rules.into_iter().collect(),
         dynamic_analysis,
         warnings,
         suppressed_count: report.metadata.suppressed_count,
@@ -3023,7 +2780,7 @@ pub fn analyze(args: AnalyzeArgs, _verbosity: Verbosity) -> Result<()> {
             let envelope = crate::output::VersionedOutput::success("analyze", &output);
             println!(
                 "{}",
-                crate::output::to_json_string(&envelope).map_err(|e| {
+                serde_json::to_string_pretty(&envelope).map_err(|e| {
                     DebuggerError::FileError(format!("Failed to serialize analysis output: {}", e))
                 })?
             );
@@ -3370,6 +3127,7 @@ pub fn doctor(args: crate::cli::args::DoctorArgs) -> Result<()> {
             config,
         ) {
             Ok(mut client) => {
+                let selected_protocol = client.selected_protocol_version();
                 let ping = match client.ping() {
                     Ok(_) => Some(check_ok("Ping succeeded")),
                     Err(e) => Some(check_err(format!("Ping failed: {}", e))),
@@ -3383,7 +3141,7 @@ pub fn doctor(args: crate::cli::args::DoctorArgs) -> Result<()> {
                         .token
                         .as_ref()
                         .map(|_| check_ok("Authentication succeeded")),
-                    selected_protocol: None,
+                    selected_protocol,
                 })
             }
             Err(e) => Some(RemoteDoctorReport {
@@ -3410,7 +3168,7 @@ pub fn doctor(args: crate::cli::args::DoctorArgs) -> Result<()> {
     };
 
     if args.format == OutputFormat::Json {
-        let json = crate::output::to_json_string(&report)
+        let json = serde_json::to_string_pretty(&report)
             .map_err(|e| miette::miette!("Failed to serialize doctor report: {}", e))?;
         println!("{}", json);
         return Ok(());
@@ -3425,6 +3183,9 @@ pub fn doctor(args: crate::cli::args::DoctorArgs) -> Result<()> {
         println!("Remote connect: {}", remote.connect.message);
         if let Some(handshake) = remote.handshake {
             println!("Remote handshake: {}", handshake.message);
+        }
+        if let Some(proto) = remote.selected_protocol {
+            println!("Remote protocol version: {}", proto);
         }
         if let Some(ping) = remote.ping {
             println!("Remote ping: {}", ping.message);
@@ -3463,16 +3224,6 @@ mod tests {
         };
 
         let json = serde_json::to_value(&report).unwrap();
-        assert!(json.get("binary").is_some());
-        assert!(json.get("config").is_some());
-        assert!(json.get("history").is_some());
-        assert!(json.get("plugins").is_some());
-        assert!(json.get("protocol").is_some());
-        assert!(json.get("vscode_extension").is_some());
-    }
-}
-//
-///////
         assert!(json.get("binary").is_some());
         assert!(json.get("config").is_some());
         assert!(json.get("history").is_some());
