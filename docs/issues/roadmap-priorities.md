@@ -68,6 +68,7 @@ useful order instead of re-triaging the whole epic every time.
 | I-013 | Update `ARCHITECTURE.md` — clarify `Stepper` status | P2 | XS | Docs | — | 2 |
 | I-014 | Expand `ARCHITECTURE.md` Extension Points with plugin/remote/batch | P2 | S | Docs | I-015, I-017 | 2 |
 | I-015 | Add VS Code extension / DAP adapter architecture section | P2 | M | Docs | — | 2 |
+| I-015 | ~Add VS Code extension / DAP adapter architecture section~ | P2 | M | Docs | — | 2 |
 | I-016 | Document rationale for direct `soroban-env-host` integration | P3 | S | Docs | — | 3 |
 | I-017 | Add plugin ABI stability summary to `ARCHITECTURE.md` | P2 | S | Docs | — | 2 |
 | I-018 | Promote batch execution to a proper design doc in `docs/` | P2 | S | Docs | — | 2 |
