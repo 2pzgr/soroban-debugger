@@ -14,3 +14,4 @@ supports_hot_reload = false
 library = "libsoroban_debug_starter_plugin.so"
 
 dependencies = []
+
