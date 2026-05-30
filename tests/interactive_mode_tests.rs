@@ -45,3 +45,39 @@ fn interactive_accepts_basic_commands_and_exits() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn interactive_list_breaks_shows_hit_count() {
+    let wasm = fixture_wasm("counter");
+    if !wasm.exists() {
+        eprintln!(
+            "Skipping test: fixture not found at {}. Run tests/fixtures/build.sh to build fixtures.",
+            wasm.display()
+        );
+        return;
+    }
+
+    let output = base_cmd()
+        .args([
+            "interactive",
+            "--contract",
+            wasm.to_str().unwrap(),
+            "--function",
+            "get",
+        ])
+        .write_stdin("break get\nlist-breaks\nquit\n")
+        .output()
+        .unwrap();
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(output.status.success(), "{combined}");
+    assert!(
+        combined.contains("hits=0"),
+        "list-breaks should include hit count\n{combined}"
+    );
+}

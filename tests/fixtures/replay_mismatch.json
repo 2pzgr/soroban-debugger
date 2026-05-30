@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "command": "replay",
+  "status": "success",
+  "result": {
+    "label_a": "v1.0 baseline",
+    "label_b": "replayed",
+    "storage_diff": {
+      "only_in_a": {
+        "balance:Alice": 1000
+      },
+      "only_in_b": {
+        "balance:Bob": 2000
+      },
+      "modified": {
+        "total_supply": [1000, 1100]
+      },
+      "unchanged_count": 2
+    },
+    "budget_diff": {
+      "a": {
+        "cpu_instructions": 45000,
+        "memory_bytes": 15360,
+        "cpu_limit": 100000,
+        "memory_limit": 40960
+      },
+      "b": {
+        "cpu_instructions": 47000,
+        "memory_bytes": 16000,
+        "cpu_limit": 100000,
+        "memory_limit": 40960
+      },
+      "cpu_delta": 2000,
+      "memory_delta": 640
+    },
+    "return_value_diff": {
+      "a": {"status": "ok"},
+      "b": {"status": "error"},
+      "equal": false
+    },
+    "flow_diff": {
+      "a_calls": [
+        {"function": "transfer", "args": null, "depth": 0}
+      ],
+      "b_calls": [
+        {"function": "transfer", "args": null, "depth": 0},
+        {"function": "log", "args": null, "depth": 1}
+      ],
+      "filtered_a_calls": ["transfer()"],
+      "filtered_b_calls": ["transfer()", "  log()"],
+      "diff_lines": [
+        {"same": "transfer()"},
+        {"only_b": "  log()"}
+      ],
+      "identical": false
+    },
+    "event_diff": {
+      "a_events": [],
+      "b_events": [
+        {"contract_id": "TOKEN01", "topics": ["fee"], "data": "50"}
+      ],
+      "filtered_a_events": [],
+      "filtered_b_events": [
+        {"contract_id": "TOKEN01", "topics": ["fee"], "data": "50"}
+      ],
+      "identical": false
+    }
+  },
+  "error": null
+}

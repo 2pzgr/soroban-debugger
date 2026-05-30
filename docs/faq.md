@@ -69,7 +69,7 @@ soroban-debug inspect --contract my_contract.wasm
 
 ### 7. Breakpoints are not triggering
 **Cause:** You might be setting a breakpoint on a function that is never called, or the function name is slightly different (e.g., due to name mangling).
-**Fix:** Verify the function name using `soroban-debug inspect`. In `interactive` mode, use `list-breaks` to ensure your breakpoints are registered.
+**Fix:** Verify the function name using `soroban-debug inspect`. In `interactive` mode, use `list-breaks` to ensure your breakpoints are registered and to see their hit counts.
 
 ### 8. Can I set a breakpoint on a specific line number?
 **Answer:** Currently, the debugger supports setting breakpoints only at **function boundaries**.
@@ -104,7 +104,7 @@ soroban-debug inspect --contract my_contract.wasm
 
 ## Argument Parsing
 
-### 14. My JSON arguments are failing to parse
+### 13. My JSON arguments are failing to parse
 **Cause:** Shell quoting issues are common. If your JSON contains double quotes, the shell might be stripping them.
 **Fix:** Wrap the entire JSON string in single quotes:
 ```bash

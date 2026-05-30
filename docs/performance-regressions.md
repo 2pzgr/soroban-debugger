@@ -46,3 +46,19 @@ cargo bench --benches -- --noplot
 cargo run --bin bench-regression -- compare --baseline .bench/baseline.json --criterion target/criterion
 ```
 
+## Coverage parser self-test
+
+The benchmark helper script also contains a schema-regression self-test for coverage parsing:
+
+```bash
+bash scripts/check_benchmark_regressions.sh selftest-coverage-missing-field
+```
+
+This mode does not run Criterion benchmarks. Instead, it feeds intentionally incomplete coverage JSON into `coverage-percent-from-json` and verifies two behaviors:
+
+- The parser exits with a failure when `.data[0].totals.lines.percent` is missing.
+- The error message explicitly names the missing numeric field so CI failures remain actionable when the `cargo llvm-cov --json --summary-only` schema drifts.
+
+Run this self-test when you change the coverage parsing logic, the CI workflow around coverage extraction, or the docs that describe the coverage contract. This is the self-test referenced in [Feature Matrix](feature-matrix.md#maintaining-this-document).
+
+`jq` must be available on `PATH`; the script will fail early if it is missing.

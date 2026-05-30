@@ -273,7 +273,7 @@ Tips:
 
 ## Claiming and Working on Issues
 
-- Check the issue tracker for open issues and labels like `good first issue` or `help wanted`.
+- Check the [issue tracker](https://github.com/Timi16/soroban-debugger/issues) for open issues and labels like [good first issue](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) or [help wanted](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22).
 - Before starting, comment on the issue to say you want to work on it.
 - If an issue is already assigned, coordinate in the thread before beginning work.
 - Keep one issue per PR when possible, and link the PR to the issue.
@@ -349,22 +349,22 @@ When suggesting a feature, please include:
 We welcome contributions in the following areas:
 
 **Current Focus:**
-- CLI improvements
-- Enhanced error messages
-- Storage inspection
-- Budget tracking
+- [CLI improvements](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3ACLI)
+- [Enhanced error messages](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3A%22error+messages%22)
+- [Storage inspection](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Astorage)
+- [Budget tracking](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Abudget)
 
 **Upcoming:**
-- Breakpoint management
-- Terminal UI enhancements
-- Call stack visualization
-- Execution replay
+- [Breakpoint management](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Abreakpoints)
+- [Terminal UI enhancements](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3ATUI)
+- [Call stack visualization](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3A%22call+stack%22)
+- [Execution replay](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Areplay)
 
 **Future:**
-- WASM instrumentation
-- Source map support
-- Memory profiling
-- Performance analysis
+- [WASM instrumentation](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Ainstrumentation)
+- [Source map support](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3A%22source+maps%22)
+- [Memory profiling](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Aprofiling)
+- [Performance analysis](https://github.com/Timi16/soroban-debugger/issues?q=is%3Aopen+is%3Aissue+label%3Aperformance)
 
 If you have ideas outside these areas, feel free to discuss them by opening an issue.
 

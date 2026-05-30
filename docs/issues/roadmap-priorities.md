@@ -23,6 +23,25 @@
 
 ---
 
+## Section Rollup
+
+Use this table before you dive into the 100-row priority matrix. It gives each
+backlog section a recommended entry point so maintainers can open issues in a
+useful order instead of re-triaging the whole epic every time.
+
+| Section | Backlog slice | Planning focus | Start with | Why this is the entry point |
+|---------|---------------|----------------|------------|-----------------------------|
+| **A** | [README and Landing Docs](backlog-100-issues.md#section-a--readme-and-landing-docs) | New-user discoverability and release-facing repo hygiene | `I-009`, then `I-007` | `I-009` is a P0 FAQ gap; `I-007` unlocks several later navigation fixes. |
+| **B** | [Architecture and Design Docs](backlog-100-issues.md#section-b--architecture-and-design-docs) | Fill missing system-shape docs before dependent tutorials land | `I-015` | The VS Code / DAP architecture doc unblocks `I-024` and `I-048`. |
+| **C** | [Feature Reference Docs](backlog-100-issues.md#section-c--feature-reference-docs) | Close reference gaps that affect discoverability and advanced workflows | `I-023`, then `I-030` | `I-023` is a fast cross-link win; `I-030` unlocks plugin tutorial work. |
+| **D** | [Tutorials](backlog-100-issues.md#section-d--tutorials) | Repair broken learning paths, then add missing workflows | `I-043`, then `I-046` | `I-043` is the only P0 in this section; `I-046` improves tutorial discoverability immediately. |
+| **E** | [Contributor Workflow](backlog-100-issues.md#section-e--contributor-workflow) | Remove contributor blockers, then formalize process | `I-058`, then `I-053` | `I-058` fixes a missing referenced file; `I-053` is an easy on-ramp for contribution flow. |
+| **F** | [Release Operations](backlog-100-issues.md#section-f--release-operations) | Establish release-critical documentation before automation depth | `I-071` | It is P0 and also unblocks follow-on `git-cliff` docs in contributor guidance. |
+| **G** | [Repo Health and Meta](backlog-100-issues.md#section-g--repo-health-and-meta) | Clean repo-level trust and navigation issues | `I-085`, then `I-083` | `I-085` is security-critical; `I-083` prevents future root-level doc sprawl. |
+| **H** | [DX and Tooling Quality](backlog-100-issues.md#section-h--dx-and-tooling-quality) | Improve entry points first, then automate drift detection | `I-094` | It is a P0 fix on the primary onboarding path and is independent of later tooling work. |
+
+---
+
 ## Priority Table
 
 ### Section A — README and Landing Docs
@@ -87,15 +106,15 @@
 | I-041 | Reference `.soroban-debug.toml` in `first-debug.md` | P1 | XS | Docs | I-004 | 2 |
 | I-042 | Document all TOML keys in `scenario-runner.md` | P1 | M | Docs | — | 2 |
 | I-043 | Complete empty checklist items in `debug-auth-errors.md` | P0 | S | Docs | — | 1 |
-| I-044 | Add report interpretation to `symbolic-analysis-budgets.md` | P2 | M | Docs | — | 2 |
-| I-045 | Add `--budget-trend` flag coverage to `understanding-budget.md` | P1 | S | Docs | — | 2 |
+| I-044 | ~Add report interpretation to `symbolic-analysis-budgets.md`~ | P2 | M | Docs | — | 2 |
+| I-045 | ~Add `--budget-trend` flag coverage to `understanding-budget.md`~ | P1 | S | Docs | — | 2 |
 | I-046 | Relocate `docs/doc/tutorials/video-token-transfer.md` to `docs/tutorials/` | P1 | XS | Docs | I-007 | 1 |
 | I-047 | Write end-to-end plugin development tutorial | P2 | L | Docs | I-030, I-026 | 3 |
 | I-048 | Write VS Code extension setup tutorial | P1 | M | Docs | I-015, I-024 | 2 |
 | I-049 | Write TUI (`soroban-debug tui`) tutorial | P2 | M | Docs | — | 3 |
 | I-050 | Write upgrade-check workflow tutorial | P2 | M | Docs | I-034 | 3 |
 | I-051 | Write REPL tutorial | P2 | M | Docs | — | 3 |
-| I-052 | Write remote debugging in CI tutorial | P2 | L | Docs | I-024, I-048 | 3 |
+| I-052 | ~Write remote debugging in CI tutorial~ | P2 | L | Docs | I-024, I-048 | 3 |
 
 ### Section E — Contributor Workflow
 
@@ -314,3 +333,11 @@ acceptance criteria.
 5. **Review this file** at the end of each wave — demote any issues that turn out
    to be lower value than expected, and promote anything the wave work revealed
    as higher priority.
+
+---
+
+## Maintenance Rules
+
+1. When adding or removing an issue in [backlog-100-issues.md](backlog-100-issues.md), update the matching roadmap row in the same commit.
+2. Keep the short title in this file close to the backlog wording so maintainers can grep for an ID and compare the two documents quickly.
+3. When a dependency changes, update both the `Depends on` column and the relevant wave summary so the wave plan stays executable rather than historical.

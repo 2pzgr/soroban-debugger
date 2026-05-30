@@ -27,7 +27,7 @@ pub enum ReplCommand {
         function: String,
         condition: Option<String>,
     },
-    /// List breakpoints: list-breaks
+    /// List breakpoints and hit counts: list-breaks
     ListBreaks,
     /// Clear a breakpoint: clear-break <function>
     ClearBreak {
@@ -36,6 +36,7 @@ pub enum ReplCommand {
     /// Open the command palette
     Palette,
     Functions,
+    Palette,
 }
 
 impl ReplCommand {
@@ -54,6 +55,7 @@ impl ReplCommand {
             "clear-break",
             "palette",
             "functions",
+            "palette",
         ]
     }
 
@@ -120,6 +122,7 @@ impl ReplCommand {
             "functions" => Ok(ReplCommand::Functions),
             "clear" => Ok(ReplCommand::Clear),
             "help" => Ok(ReplCommand::Help),
+            "palette" => Ok(ReplCommand::Palette),
             "exit" | "quit" => Ok(ReplCommand::Exit),
             _ => Err(miette::miette!(
                 "Unknown command: '{}'. Type 'help' for available commands.",

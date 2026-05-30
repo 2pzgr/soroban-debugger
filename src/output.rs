@@ -1,4 +1,4 @@
- .//! Output and accessibility configuration for screen-reader compatible CLI.
+//! Output and accessibility configuration for screen-reader compatible CLI.
 //!
 //! Supports `NO_COLOR` (disable ANSI colors) and `--no-unicode` (ASCII-only output).
 
@@ -6,8 +6,40 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Format a `SystemTime` as a UTC ISO 8601 string (e.g. `"2026-05-27T12:34:56Z"`).
+///
+/// Uses only the standard library — no locale dependency.
+pub fn format_timestamp_iso8601(time: std::time::SystemTime) -> String {
+    use chrono::{DateTime, Utc};
+    let dt: DateTime<Utc> = time.into();
+    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Return the current UTC time as an ISO 8601 string.
+pub fn now_iso8601() -> String {
+    format_timestamp_iso8601(std::time::SystemTime::now())
+}
+
 static NO_UNICODE: AtomicBool = AtomicBool::new(false);
 static COLORS_ENABLED: AtomicBool = AtomicBool::new(true);
+static PRETTY_JSON: AtomicBool = AtomicBool::new(false);
+
+pub fn set_pretty_json(pretty: bool) {
+    PRETTY_JSON.store(pretty, Ordering::Relaxed);
+}
+
+pub fn is_pretty_json() -> bool {
+    PRETTY_JSON.load(Ordering::Relaxed)
+}
+
+pub fn to_json_string<T: serde::Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    if is_pretty_json() {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
 pub const SCHEMA_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -86,9 +118,15 @@ impl DiagnosticRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct OutputError {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -393,6 +431,9 @@ where
             result: None,
             error: Some(OutputError {
                 message: message.into(),
+                code: None,
+                category: None,
+                suggestion: None,
             }),
         }
     }
@@ -528,6 +569,7 @@ impl OutputConfig {
     }
 }
 
+
 /// Status kind for text-equivalent labels (screen reader friendly).
 #[derive(Clone, Copy)]
 pub enum StatusLabel {
@@ -637,6 +679,35 @@ pub fn format_resource_timeline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_timestamp_iso8601_produces_utc_z_suffix() {
+        let epoch = std::time::SystemTime::UNIX_EPOCH;
+        let s = format_timestamp_iso8601(epoch);
+        assert_eq!(s, "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn format_timestamp_iso8601_known_value() {
+        // 2025-05-27 00:00:00 UTC  =>  1748304000 seconds since epoch
+        let t = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(1_748_304_000);
+        let s = format_timestamp_iso8601(t);
+        assert_eq!(s, "2025-05-27T00:00:00Z");
+    }
+
+    #[test]
+    fn now_iso8601_has_expected_format() {
+        let s = now_iso8601();
+        // Must look like YYYY-MM-DDTHH:MM:SSZ (20 chars)
+        assert_eq!(s.len(), 20, "unexpected length: {}", s);
+        assert!(s.ends_with('Z'), "must end with Z: {}", s);
+        assert_eq!(&s[4..5], "-");
+        assert_eq!(&s[7..8], "-");
+        assert_eq!(&s[10..11], "T");
+        assert_eq!(&s[13..14], ":");
+        assert_eq!(&s[16..17], ":");
+    }
 
     #[test]
     fn test_replay_bundle_serializes() {

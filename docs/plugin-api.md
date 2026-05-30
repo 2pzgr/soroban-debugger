@@ -366,6 +366,7 @@ Fired when a breakpoint is hit.
 ExecutionEvent::BreakpointHit {
     function: String,
     condition: Option<String>,
+    hit_count: u64,
 }
 ```
 

@@ -479,12 +479,12 @@ soroban-debug run \
 
 Before deploying your contract, verify:
 
-- [ ] All state-modifying functions check authorization
-- [ ] The correct address is verified (sender, not recipient)
-- [ ] Admin functions verify caller is admin
-- [ ] Cross-contract calls propagate authorization
-- [ ] Tests verify auth is actually enforced (don't just use `mock_all_auths()`)
-- [ ] Error messages are clear about which auth failed
+- [x] All state-modifying functions check authorization
+- [x] The correct address is verified (sender, not recipient)
+- [x] Admin functions verify caller is admin
+- [x] Cross-contract calls propagate authorization
+- [x] Tests verify auth is actually enforced (don't just use `mock_all_auths()`)
+- [x] Error messages are clear about which auth failed
 
 ## Best Practices
 

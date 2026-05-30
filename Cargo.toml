@@ -159,5 +159,7 @@ path = "src/bin/bench-regression.rs"
 bench = false
 
 [lib]
+crate-type = ["rlib", "cdylib"]
+
 name = "soroban_debugger"
 crate-type = ["rlib", "cdylib"]

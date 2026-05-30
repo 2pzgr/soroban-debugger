@@ -1247,7 +1247,7 @@ export async function validateLaunchConfig(
   const issues: LaunchPreflightIssue[] = [];
   const resolvedBinaryPath = resolveDebuggerBinaryPath(config);
 
-  if (!looksLikeVariableReference(resolvedBinaryPath)) {
+  if (config.spawnServer !== false && !looksLikeVariableReference(resolvedBinaryPath)) {
     pushFileIssue(
       issues,
       "binaryPath",

@@ -66,6 +66,8 @@ The extension will be published to the VS Code Marketplace. Once available, sear
 
 ## Quick Start
 
+For an end-to-end setup walkthrough, including extension installation, `.vscode/launch.json`, and first breakpoints, see [docs/tutorials/vscode-extension-setup.md](../../docs/tutorials/vscode-extension-setup.md).
+
 ### 1. Create a Debug Configuration
 
 Add the following to your project's `.vscode/launch.json`:

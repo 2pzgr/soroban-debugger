@@ -29,6 +29,109 @@ pub struct DebuggerEngine {
     instruction_debug_enabled: bool,
 }
 
+struct EngineConditionEvaluator {
+    storage: HashMap<String, String>,
+    function: String,
+    args: Option<String>,
+}
+
+impl EngineConditionEvaluator {
+    fn new(storage: HashMap<String, String>, function: &str, args: Option<&str>) -> Self {
+        Self {
+            storage,
+            function: function.to_string(),
+            args: args.map(str::to_string),
+        }
+    }
+
+    fn parse_condition<'a>(
+        &self,
+        condition: &'a str,
+    ) -> crate::Result<(&'a str, &'a str, &'a str)> {
+        let condition = condition.trim();
+        let (var, op, value) = if let Some(pos) = condition.find(">=") {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), ">=", rest[2..].trim())
+        } else if let Some(pos) = condition.find("<=") {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), "<=", rest[2..].trim())
+        } else if let Some(pos) = condition.find("==") {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), "==", rest[2..].trim())
+        } else if let Some(pos) = condition.find("!=") {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), "!=", rest[2..].trim())
+        } else if let Some(pos) = condition.find('>') {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), ">", rest[1..].trim())
+        } else if let Some(pos) = condition.find('<') {
+            let (var, rest) = condition.split_at(pos);
+            (var.trim(), "<", rest[1..].trim())
+        } else {
+            return Err(crate::DebuggerError::BreakpointError(format!(
+                "No operator found in condition: {}",
+                condition
+            ))
+            .into());
+        };
+
+        Ok((var, op, value))
+    }
+
+    fn normalize_value(value: &str) -> &str {
+        value.trim_matches('"').trim_matches('\'')
+    }
+}
+
+impl ConditionEvaluator for EngineConditionEvaluator {
+    fn evaluate(&self, condition: &str) -> crate::Result<bool> {
+        let (var, op, value_str) = self.parse_condition(condition)?;
+        let actual = self
+            .storage
+            .get(var)
+            .map(String::as_str)
+            .unwrap_or_default()
+            .trim();
+        let actual = Self::normalize_value(actual);
+        let expected = Self::normalize_value(value_str);
+
+        if let (Ok(lhs), Ok(rhs)) = (actual.parse::<f64>(), expected.parse::<f64>()) {
+            return Ok(match op {
+                "==" => lhs == rhs,
+                "!=" => lhs != rhs,
+                ">" => lhs > rhs,
+                "<" => lhs < rhs,
+                ">=" => lhs >= rhs,
+                "<=" => lhs <= rhs,
+                _ => false,
+            });
+        }
+
+        Ok(match op {
+            "==" => actual == expected,
+            "!=" => actual != expected,
+            ">" => actual > expected,
+            "<" => actual < expected,
+            ">=" => actual >= expected,
+            "<=" => actual <= expected,
+            _ => false,
+        })
+    }
+
+    fn interpolate_log(&self, template: &str) -> crate::Result<String> {
+        let mut rendered = template.to_string();
+        for (key, value) in &self.storage {
+            rendered = rendered.replace(&format!("{{{}}}", key), value);
+        }
+        rendered = rendered.replace("{function}", &self.function);
+        if let Some(args) = &self.args {
+            rendered = rendered.replace("{args}", args);
+            rendered = rendered.replace("{arguments}", args);
+        }
+        Ok(rendered)
+    }
+}
+
 impl DebuggerEngine {
     /// Returns the current paused source location (file, line, column) if available.
     pub fn current_source_location(&self) -> Option<crate::debugger::source_map::SourceLocation> {
@@ -202,6 +305,23 @@ impl DebuggerEngine {
         );
 
         if check_breakpoints {
+            let storage = self.executor.get_storage_snapshot().unwrap_or_default();
+            let evaluator = EngineConditionEvaluator::new(storage, function, args);
+            let (should_pause, log_output) = self
+                .breakpoints_mut()
+                .should_break_with_context(function, &evaluator)?;
+
+            if let Some(message) = log_output {
+                crate::logging::log_breakpoint_log(function, &message);
+                println!("{message}");
+            }
+
+            if should_pause {
+                let condition = self
+                    .breakpoints()
+                    .get_breakpoint(function)
+                    .and_then(|bp| bp.condition.clone());
+                self.pause_at_function(function, condition);
             let evaluator = self.create_condition_evaluator();
             match self
                 .breakpoints
@@ -294,11 +414,17 @@ impl DebuggerEngine {
             .breakpoints
             .get_breakpoint(function)
             .and_then(|bp| bp.condition.as_ref().map(|c| format!("{:?}", c)));
+        let hit_count = self
+            .breakpoints
+            .get_breakpoint(function)
+            .map(|bp| bp.hit_count)
+            .unwrap_or(0);
 
         crate::plugin::registry::dispatch_global_event(
             &ExecutionEvent::BreakpointHit {
                 function: function.to_string(),
                 condition,
+                hit_count,
             },
             &mut plugin_ctx,
         );
@@ -581,6 +707,11 @@ impl DebuggerEngine {
             &ExecutionEvent::BreakpointHit {
                 function: function.to_string(),
                 condition,
+                hit_count: self
+                    .breakpoints
+                    .get_breakpoint(function)
+                    .map(|bp| bp.hit_count)
+                    .unwrap_or(0),
             },
             &mut plugin_ctx,
         );

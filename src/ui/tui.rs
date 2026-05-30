@@ -39,7 +39,7 @@ pub struct DebuggerUI {
 }
 
 impl DebuggerUI {
-    pub fn new(engine: DebuggerEngine) -> Result<Self> {
+    pub fn new(engine: DebuggerEngine) -> crate::Result<Self> {
         Ok(Self {
             engine,
             config: crate::config::Config::load_or_default(),
@@ -57,6 +57,16 @@ impl DebuggerUI {
         self.pending_execution = Some(PendingExecution { function, args });
         self.last_output = None;
         self.last_error = None;
+    }
+
+    pub fn parse_storage_display_options(_parts: &[&str]) -> crate::Result<StorageDisplayOptions> {
+        // Basic implementation for now
+        Ok(StorageDisplayOptions {
+            filter: None,
+            jump_to: None,
+            page: 0,
+            page_size: 20,
+        })
     }
 
     pub fn last_output(&self) -> Option<&str> {
@@ -221,7 +231,7 @@ impl DebuggerUI {
                             .map(|c| format!(" (if {:?})", c))
                             .unwrap_or_default();
                         crate::logging::log_display(
-                            format!("- {}{}", bp.function, cond_str),
+                            format!("- {}{} hits={}", bp.function, cond_str, bp.hit_count),
                             crate::logging::LogLevel::Info,
                         );
                     }
@@ -500,7 +510,7 @@ impl DebuggerUI {
             crate::logging::LogLevel::Info,
         );
         crate::logging::log_display(
-            "  list-breaks        List breakpoints",
+            "  list-breaks        List breakpoints with hit counts",
             crate::logging::LogLevel::Info,
         );
         crate::logging::log_display(
@@ -519,6 +529,14 @@ impl DebuggerUI {
             format!("  quit | {:<11} Exit debugger", kb.quit),
             crate::logging::LogLevel::Info,
         );
+    }
+
+    fn show_palette(&mut self) -> Result<()> {
+        crate::logging::log_display(
+            "Command palette not yet implemented in this view",
+            crate::logging::LogLevel::Warn,
+        );
+        Ok(())
     }
 }
 

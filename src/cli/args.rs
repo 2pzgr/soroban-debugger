@@ -234,6 +234,13 @@ pub enum Commands {
     Server(ServerArgs),
 
     /// Connect to remote debug server
+    ///
+    /// Examples:
+    ///   soroban-debug remote --remote localhost:9229 --token "$TOKEN"
+    ///   soroban-debug remote --remote 10.0.0.15:9229 --token "$TOKEN" --tls-ca /path/to/server-ca.pem
+    ///
+    /// For TLS and connection issues, see the remote troubleshooting guide:
+    /// https://github.com/Timi16/soroban-debugger/blob/main/docs/remote-troubleshooting.md
     #[command(subcommand_help_heading = "Remote and Server")]
     Remote(RemoteArgs),
 
@@ -246,7 +253,15 @@ pub enum Commands {
     #[command(subcommand_help_heading = "Developer Utilities")]
     HistoryPrune(HistoryPruneArgs),
 
-    /// Report runtime health and diagnostics for troubleshooting
+    /// Generate a trust and security report for all loaded plugins
+    #[command(subcommand_help_heading = "Developer Utilities")]
+    PluginTrustReport(PluginTrustReportArgs),
+
+    /// Inspect a specific plugin's capabilities and metadata
+    #[command(subcommand_help_heading = "Developer Utilities")]
+    PluginInspect(PluginInspectArgs),
+
+    /// Report runtime health and diagnostics for troubleshooting, manpage drift
     Doctor(DoctorArgs),
 
     /// Plugin-provided subcommand (loaded at runtime)

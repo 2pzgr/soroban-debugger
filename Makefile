@@ -15,9 +15,29 @@
 #   ci-strict   Strict CI gate mirroring GitHub Actions ordering and strictness
 #   ci-local    Run all practical gates developers must satisfy before pushing
 
-.PHONY: all build fmt lint lint-strict hooks-install hooks-check test-rust test-rust-sandbox test-rust-network test-vscode ci-strict ci-local ci-sandbox clean regen-man check-man test-man-tmpdir
+.PHONY: all build fmt lint lint-strict hooks-install hooks-check test-rust test-rust-sandbox test-rust-network test-vscode ci-strict ci-local ci-sandbox clean regen-man check-man test-man-tmpdir help
 
-all: build
+all: help
+
+help:
+	@echo "Soroban Debugger — developer convenience targets"
+	@echo ""
+	@echo "Targets:"
+	@echo "  help             Show this help message"
+	@echo "  regen-man        Regenerate all man pages from current CLI source"
+	@echo "  check-man        Verify committed man pages match generated output"
+	@echo "  test-man-tmpdir  Run portability tests for man page temp dir handling"
+	@echo "  fmt              Check Rust formatting"
+	@echo "  lint             Run Rust clippy lints (strict)"
+	@echo "  lint-strict      Run Rust clippy with CI-equivalent strict flags"
+	@echo "  hooks-install    Install pre-commit hooks for local validation"
+	@echo "  hooks-check      Run pre-commit hooks against all files"
+	@echo "  test-rust        Run Rust backend tests"
+	@echo "  test-rust-network Run only loopback network-dependent Rust tests"
+	@echo "  test-vscode      Run VS Code extension tests"
+	@echo "  ci-strict        Strict CI gate mirroring GitHub Actions"
+	@echo "  ci-local         Run all practical gates developers must satisfy"
+	@echo "  clean            Clean build artifacts"
 
 build:
 	cargo build
@@ -80,9 +100,9 @@ ci-strict:
 
 # The single local entrypoint for developers
 ci-local: fmt lint test-rust test-vscode check-man
-	@echo "======================================="
+	@echo "========================================="
 	@echo "✅ All local CI gates passed successfully!"
-	@echo "======================================="
+	@echo "========================================="
 
 # Sandbox-safe local gate for restricted environments.
 # Runs deterministic checks and explicitly reports skipped network/temp-dependent gates.

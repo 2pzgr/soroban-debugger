@@ -87,7 +87,24 @@ soroban contract build
 
 Verify that your WASM file was generated at `target/wasm32-unknown-unknown/release/hello_world.wasm`. Because debug symbols are included, the file size will be significantly larger than a heavily optimized production build.
 
-## 4. Starting the Debugger
+## 4. Save Project Defaults in `.soroban-debug.toml`
+
+Before you start the debugger, add a project-local config file so repeated sessions keep the same defaults. Create `.soroban-debug.toml` in the project root:
+
+```toml
+[debug]
+breakpoints = ["increment"]
+verbosity = 1
+
+[output]
+show_events = true
+```
+
+The debugger loads this file automatically when it starts. It is a good place to keep default breakpoints, verbosity, and output settings that you want every contributor to share.
+
+If you prefer debugging from VS Code, keep this file alongside a `.vscode/launch.json` and follow [Set Up the VS Code Extension](vscode-extension-setup.md) for the editor-side setup.
+
+## 5. Starting the Debugger
 
 Launch the debugger and pass the path to your compiled WASM file.
 
@@ -104,7 +121,7 @@ Debug symbols loaded successfully.
 
 You are now in the interactive debugging prompt. Type `help` to see all available basic debugger commands (`run`, `step`, `next`, `break`, `print`, `storage`).
 
-## 5. Setting Breakpoints
+## 6. Setting Breakpoints
 
 Before running the contract, we need to tell the debugger where to pause execution. You can set breakpoints by function name or by file and line number.
 
@@ -122,7 +139,7 @@ Breakpoint 1 set at src/lib.rs:13
 ![Setting a Breakpoint](./images/debugger-breakpoint.png)
 *(Screenshot: Terminal showing the breakpoint confirmation and the interactive prompt)*
 
-## 6. Running and Stepping Through Code
+## 7. Running and Stepping Through Code
 
 To trigger the execution, we use the `invoke` command, simulating a call to the contract.
 
@@ -146,7 +163,7 @@ Execute the current line and move to the next one using the `next` (or `n`) comm
 (soroban-debug) next
 ```
 
-## 7. Inspecting Storage and Variables
+## 8. Inspecting Storage and Variables
 
 Now that we have stepped past line 13, the `count` variable has been initialized. Let's inspect it using the `print` command:
 
@@ -216,4 +233,4 @@ Return value: U32(1)
 * **Host Environment:** The debugger runs a mock Soroban environment. State does not persist between `soroban-debugger` CLI sessions unless you export the ledger state to a JSON file.
 
 ---
-*Return to the [Docs Index](../../README.md) for more tutorials.*
+*Return to the [Docs Index](../index.md) for more tutorials.*

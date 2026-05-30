@@ -32,7 +32,7 @@ class SorobanDebugConfigurationProvider
       return this.createDefaultLaunchConfig(folder)
     }
 
-    if (config.type !== 'soroban' || config.request !== 'launch') {
+    if (config.type !== 'soroban' || (config.request !== 'launch' && config.request !== 'attach')) {
       return config
     }
 
@@ -48,6 +48,11 @@ class SorobanDebugConfigurationProvider
       config.contractPath ?? settings.get<string>('defaultContractPath')
     config.snapshotPath =
       config.snapshotPath ?? settings.get<string>('defaultSnapshotPath')
+
+    if (config.request === 'attach') {
+      config.spawnServer = false
+      config.host = config.host ?? '127.0.0.1'
+    }
 
     const preflight = await validateLaunchConfig(config)
     if (preflight.ok) {

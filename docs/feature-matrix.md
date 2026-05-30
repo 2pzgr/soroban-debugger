@@ -154,7 +154,7 @@ This matrix is derived from:
 
 Related CI contract checks:
 - Coverage enforcement in `.github/workflows/ci.yml` validates `cargo llvm-cov --json --summary-only` schema and requires `.data[0].totals.lines.percent` to exist as a numeric field.
-- Missing-field behavior is regression-tested by `bash scripts/check_benchmark_regressions.sh selftest-coverage-missing-field` to keep schema drift failures actionable.
+- Missing-field behavior is regression-tested by `bash scripts/check_benchmark_regressions.sh selftest-coverage-missing-field`; see [Benchmark regression policy](performance-regressions.md#coverage-parser-self-test) for the exact contract that self-test enforces.
 
 When adding a new CLI flag or DAP capability, update this file alongside the
 implementation to keep gaps explicit rather than implicit.

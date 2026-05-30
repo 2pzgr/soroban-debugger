@@ -108,6 +108,42 @@ pub fn format_global_output(formatter: &str, data: &str) -> PluginResult<Option<
     registry.format_output(formatter, data)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PluginTrustSummary {
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub trusted: bool,
+    pub signer: Option<String>,
+    pub fingerprint: Option<String>,
+    pub warnings: Vec<String>,
+    pub capabilities: super::manifest::PluginCapabilities,
+}
+
+pub fn get_global_trust_report() -> Vec<PluginTrustSummary> {
+    let Some(registry) = GLOBAL_PLUGIN_REGISTRY.get() else {
+        return Vec::new();
+    };
+
+    let Ok(registry) = registry.read() else {
+        return Vec::new();
+    };
+
+    registry.trust_report()
+}
+
+pub fn get_global_plugin_info(name: &str) -> Option<PluginTrustSummary> {
+    let Some(registry) = GLOBAL_PLUGIN_REGISTRY.get() else {
+        return None;
+    };
+
+    let Ok(registry) = registry.read() else {
+        return None;
+    };
+
+    registry.plugin_info(name)
+}
+
 pub fn global_command_conflicts() -> HashMap<String, Vec<String>> {
     let Some(registry) = GLOBAL_PLUGIN_REGISTRY.get() else {
         return HashMap::new();
@@ -992,6 +1028,46 @@ impl PluginRegistry {
             }
         }
         out
+    }
+
+    pub fn trust_report(&self) -> Vec<PluginTrustSummary> {
+        let mut report = Vec::new();
+        for plugin in self.plugins.values() {
+            if let Ok(p) = plugin.read() {
+                let trust = p.trust();
+                report.push(PluginTrustSummary {
+                    name: p.manifest().name.clone(),
+                    version: p.manifest().version.clone(),
+                    author: p.manifest().author.clone(),
+                    trusted: trust.trusted,
+                    signer: trust.signer.as_ref().map(|s| s.signer.clone()),
+                    fingerprint: trust.signer.as_ref().map(|s| s.fingerprint.clone()),
+                    warnings: trust.warnings.clone(),
+                    capabilities: p.manifest().capabilities.clone(),
+                });
+            }
+        }
+        report
+    }
+
+    pub fn plugin_info(&self, name: &str) -> Option<PluginTrustSummary> {
+        self.plugins.get(name).and_then(|plugin| {
+            if let Ok(p) = plugin.read() {
+                let trust = p.trust();
+                Some(PluginTrustSummary {
+                    name: p.manifest().name.clone(),
+                    version: p.manifest().version.clone(),
+                    author: p.manifest().author.clone(),
+                    trusted: trust.trusted,
+                    signer: trust.signer.as_ref().map(|s| s.signer.clone()),
+                    fingerprint: trust.signer.as_ref().map(|s| s.fingerprint.clone()),
+                    warnings: trust.warnings.clone(),
+                    capabilities: p.manifest().capabilities.clone(),
+                })
+            } else {
+                None
+            }
+        })
     }
 
     /// Execute a plugin-provided command, if any plugin declares it.

@@ -4,16 +4,43 @@ A practical guide to identifying and fixing the most common budget inefficiencie
 
 ---
 
-## Table of Contents
+## Table of contents
 
-1. [Understanding the Soroban Budget Model](#1-understanding-the-soroban-budget-model)
-2. [Using the Debugger Profiler](#2-using-the-debugger-profiler)
-3. [Optimization Pattern 1: Redundant Storage Reads](#3-optimization-pattern-1-redundant-storage-reads)
-4. [Optimization Pattern 2: Heavy Type Usage](#4-optimization-pattern-2-heavy-type-usage)
-5. [Optimization Pattern 3: Unnecessary Computation](#5-optimization-pattern-3-unnecessary-computation)
-6. [Optimization Pattern 4: Unbounded Iterations](#6-optimization-pattern-4-unbounded-iterations)
-7. [Optimization Pattern 5: Inefficient Data Structures](#7-optimization-pattern-5-inefficient-data-structures)
-8. [Summary: Budget Savings Cheatsheet](#8-summary-budget-savings-cheatsheet)
+<!-- Regenerate with: grep -n '^#' docs/optimization-guide.md -->
+
+- [1. Understanding the Soroban Budget Model](#1-understanding-the-soroban-budget-model)
+- [2. Using the Debugger Profiler](#2-using-the-debugger-profiler)
+  - [Running a baseline profile](#running-a-baseline-profile)
+  - [Reading the output](#reading-the-output)
+  - [Diffing before and after an optimization](#diffing-before-and-after-an-optimization)
+- [3. Optimization Pattern 1: Redundant Storage Reads](#3-optimization-pattern-1-redundant-storage-reads)
+  - [The problem](#the-problem)
+  - [Inefficient version](#inefficient-version)
+  - [Efficient version](#efficient-version)
+  - [Rule of thumb](#rule-of-thumb)
+- [4. Optimization Pattern 2: Heavy Type Usage](#4-optimization-pattern-2-heavy-type-usage)
+  - [The problem](#the-problem-1)
+  - [Inefficient version](#inefficient-version-1)
+  - [Efficient version](#efficient-version-1)
+  - [Rule of thumb](#rule-of-thumb-1)
+- [5. Optimization Pattern 3: Unnecessary Computation](#5-optimization-pattern-3-unnecessary-computation)
+  - [The problem](#the-problem-2)
+  - [Inefficient version](#inefficient-version-2)
+  - [Efficient version](#efficient-version-2)
+  - [Rule of thumb](#rule-of-thumb-2)
+- [6. Optimization Pattern 4: Unbounded Iterations](#6-optimization-pattern-4-unbounded-iterations)
+  - [The problem](#the-problem-3)
+  - [Inefficient version](#inefficient-version-3)
+  - [Efficient version](#efficient-version-3)
+  - [Measuring the budget cliff](#measuring-the-budget-cliff)
+  - [Rule of thumb](#rule-of-thumb-3)
+- [7. Optimization Pattern 5: Inefficient Data Structures](#7-optimization-pattern-5-inefficient-data-structures)
+  - [The problem](#the-problem-4)
+  - [Inefficient version](#inefficient-version-4)
+  - [Efficient version](#efficient-version-4)
+  - [Rule of thumb](#rule-of-thumb-4)
+- [8. Summary: Budget Savings Cheatsheet](#8-summary-budget-savings-cheatsheet)
+  - [Profiler quick reference](#profiler-quick-reference)
 
 ---
 

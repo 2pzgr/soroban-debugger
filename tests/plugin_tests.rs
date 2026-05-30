@@ -313,6 +313,7 @@ fn test_execution_events() {
     let event3 = ExecutionEvent::BreakpointHit {
         function: "test".to_string(),
         condition: Some("x > 10".to_string()),
+        hit_count: 1,
     };
 
     let event4 = ExecutionEvent::Error {

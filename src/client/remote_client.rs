@@ -123,6 +123,10 @@ pub struct RemoteClient {
     /// Session identifier received from the server during the initial handshake.
     /// Used to reconnect to an existing session after a transient disconnect.
     session_id: Option<String>,
+    /// The protocol version selected during the handshake.
+    selected_protocol_version: Option<u32>,
+    /// Metadata about the current session received from the server.
+    session_info: Option<crate::server::protocol::RemoteSessionInfo>,
 }
 
 #[derive(Debug)]
@@ -196,6 +200,8 @@ impl RemoteClient {
             selected_protocol_version: None,
             session_info: None,
             session_id: None,
+            selected_protocol_version: None,
+            session_info: None,
         };
 
         client.handshake("rust-remote-client", env!("CARGO_PKG_VERSION"))?;
@@ -361,11 +367,17 @@ impl RemoteClient {
             heartbeat_interval_ms: self.config.heartbeat_interval_ms,
             idle_timeout_ms: self.config.idle_timeout_ms,
             session_label: self.config.session_label.clone(),
+            reconnect_session_id: None,
         })?;
 
         match response {
             DebugResponse::HandshakeAck {
                 selected_version,
+                server_capabilities,
+                ..
+            } => {
+                self.selected_protocol_version = Some(selected_version);
+                self.negotiated_capabilities = Some(server_capabilities);
                 session_id,
                 session_created_at,
                 session_label,
@@ -385,6 +397,16 @@ impl RemoteClient {
                         });
                 Ok(selected_version)
             }
+            DebugResponse::IncompatibleCapabilities {
+                message,
+                missing_capabilities,
+                ..
+            } => Err(DebuggerError::ExecutionError(format!(
+                "Server is missing required capabilities [{}]: {}",
+                missing_capabilities.join(", "),
+                message
+            ))
+            .into()),
             DebugResponse::IncompatibleProtocol { message, .. } => {
                 Err(DebuggerError::ExecutionError(format!(
                     "Incompatible debugger protocol: {}",
@@ -425,6 +447,33 @@ impl RemoteClient {
                 "Unexpected response to authentication".to_string(),
             )
             .into()),
+        }
+    }
+
+    /// Returns an error if `cap_name` is not in the negotiated server capabilities.
+    /// Call this at the top of any method that uses an optional feature.
+    fn require_capability(&self, cap_name: &str) -> Result<()> {
+        let caps = match &self.negotiated_capabilities {
+            Some(c) => c,
+            None => return Ok(()), // handshake not yet done; let the server reject it
+        };
+        let supported = match cap_name {
+            "evaluate" => caps.evaluate,
+            "source_breakpoints" => caps.source_breakpoints,
+            "conditional_breakpoints" => caps.conditional_breakpoints,
+            "snapshot_loading" => caps.snapshot_loading,
+            "dynamic_trace_events" => caps.dynamic_trace_events,
+            "repeat_execution" => caps.repeat_execution,
+            _ => true, // unknown names pass through
+        };
+        if supported {
+            Ok(())
+        } else {
+            Err(DebuggerError::ExecutionError(format!(
+                "Server does not support '{}'. Check server version or capabilities.",
+                cap_name
+            ))
+            .into())
         }
     }
 
@@ -695,6 +744,7 @@ impl RemoteClient {
 
     /// Load network snapshot
     pub fn load_snapshot(&mut self, snapshot_path: &str) -> Result<String> {
+        self.require_capability("snapshot_loading")?;
         let response = self.send_request(DebugRequest::LoadSnapshot {
             snapshot_path: snapshot_path.to_string(),
         })?;
@@ -718,6 +768,7 @@ impl RemoteClient {
         expression: &str,
         frame_id: Option<u64>,
     ) -> Result<(String, Option<String>)> {
+        self.require_capability("evaluate")?;
         let response = self.send_request_with_retry(
             DebugRequest::Evaluate {
                 expression: expression.to_string(),
@@ -804,6 +855,7 @@ impl RemoteClient {
             heartbeat_interval_ms: Some(30000),
             idle_timeout_ms: Some(60000),
             session_label: self.config.session_label.clone(),
+            reconnect_session_id: self.session_id.clone(),
         };
         // Use a standard timeout for handshake during reconnect
         let handshake_resp = self
@@ -814,9 +866,7 @@ impl RemoteClient {
 
         // Capture session_id from reconnect handshake
         if let DebugResponse::HandshakeAck { session_id, .. } = &handshake_resp {
-            if session_id.is_some() {
-                self.session_id = session_id.clone();
-            }
+            self.session_id = Some(session_id.clone());
         }
 
         if let Some(token) = self.token.clone() {
@@ -899,6 +949,11 @@ impl RemoteClient {
     /// Returns the session ID received from the server, if any.
     pub fn session_id(&self) -> Option<&str> {
         self.session_id.as_deref()
+    }
+
+    /// Returns the protocol version negotiated during the handshake, if any.
+    pub fn selected_protocol_version(&self) -> Option<u32> {
+        self.selected_protocol_version
     }
 
     fn timeout_for_class(&self, class: RequestClass) -> Duration {
@@ -1042,8 +1097,73 @@ impl RemoteClient {
                 ));
             }
 
-            return Ok(response);
+            // #1258: tag server-side error responses with the request id so a
+            // CLI failure can be correlated with the matching server log line.
+            return Ok(tag_error_with_request_id(response, expected_id));
         }
+    }
+}
+
+/// Append the request id to a server error response so CLI failures can be
+/// correlated with server logs (#1258). The id is the client's per-connection
+/// request counter (not an internal server identifier) and is appended only
+/// when not already present, keeping non-error responses untouched.
+fn tag_error_with_request_id(response: DebugResponse, request_id: u64) -> DebugResponse {
+    if let DebugResponse::Error { message } = &response {
+        if !message.contains("request #") {
+            return DebugResponse::Error {
+                message: format!("{message} (request #{request_id})"),
+            };
+        }
+    }
+    response
+}
+
+#[cfg(test)]
+mod request_id_tests {
+    use super::tag_error_with_request_id;
+    use crate::server::protocol::DebugResponse;
+
+    #[test]
+    fn error_response_gains_request_id() {
+        let tagged = tag_error_with_request_id(
+            DebugResponse::Error {
+                message: "boom".to_string(),
+            },
+            42,
+        );
+        match tagged {
+            DebugResponse::Error { message } => {
+                assert!(message.contains("boom"), "original message preserved: {message}");
+                assert!(message.contains("request #42"), "request id appended: {message}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn request_id_not_duplicated() {
+        let once = tag_error_with_request_id(
+            DebugResponse::Error {
+                message: "boom".to_string(),
+            },
+            7,
+        );
+        let twice = tag_error_with_request_id(once, 9);
+        if let DebugResponse::Error { message } = twice {
+            assert_eq!(message.matches("request #").count(), 1, "no double-tag: {message}");
+            assert!(message.contains("request #7"), "keeps first id: {message}");
+        } else {
+            panic!("expected Error");
+        }
+    }
+
+    #[test]
+    fn non_error_response_untouched() {
+        assert!(matches!(
+            tag_error_with_request_id(DebugResponse::Pong, 1),
+            DebugResponse::Pong
+        ));
     }
 }
 

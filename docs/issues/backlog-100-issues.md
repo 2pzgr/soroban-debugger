@@ -22,7 +22,19 @@
 
 ---
 
+## Planning Workflow
+
+Use this file as the inventory, then move into the roadmap for execution decisions:
+
+1. Read the relevant section here to understand the raw issue list and context.
+2. Switch to [roadmap-priorities.md](roadmap-priorities.md#section-rollup) for the section rollup, then use the [Priority Table](roadmap-priorities.md#priority-table) and [Wave Plan](roadmap-priorities.md#wave-plan) to decide sequencing.
+3. When editing this backlog, update the corresponding roadmap row in the same commit so the two files stay in sync.
+
+---
+
 ## Section A — README and Landing Docs (Issues 1–12)
+
+Roadmap view: [Section A priorities](roadmap-priorities.md#section-a--readme-and-landing-docs)
 
 - **I-001** `[IA]` README table of contents is missing; readers must scroll through 420 lines to locate sections.
 - **I-002** `[DOC]` README "Troubleshooting" table has only 3 rows; the full list lives in `docs/remote-troubleshooting.md` without a cross-link from the table.
@@ -41,6 +53,8 @@
 
 ## Section B — Architecture and Design Docs (Issues 13–22)
 
+Roadmap view: [Section B priorities](roadmap-priorities.md#section-b--architecture-and-design-docs)
+
 - **I-013** `[DOC]` `ARCHITECTURE.md` describes `Stepper` as "(Planned)" with no follow-up issue or tracking link; its current implementation status is unknown.
 - **I-014** `[DOC]` `ARCHITECTURE.md` "Extension Points" section lists four items but omits the plugin system, remote server, and batch executor — all of which now exist.
 - **I-015** `[DOC]` No architecture-level doc covers the VS Code extension / DAP adapter; `ARCHITECTURE.md` only covers the Rust CLI.
@@ -55,6 +69,8 @@
 ---
 
 ## Section C — Feature Reference Docs (Issues 23–40)
+
+Roadmap view: [Section C priorities](roadmap-priorities.md#section-c--feature-reference-docs)
 
 - **I-023** `[DOC]` `docs/instruction-stepping.md` (11 KB) covers the feature thoroughly but has no link back to the feature matrix — readers don't know which surfaces support it.
 - **I-024** `[DOC]` `docs/remote-debugging.md` covers TLS setup but doesn't show a complete `launch.json` snippet for the VS Code attach flow.
@@ -79,22 +95,26 @@
 
 ## Section D — Tutorials (Issues 41–52)
 
+Roadmap view: [Section D priorities](roadmap-priorities.md#section-d--tutorials)
+
 - **I-041** `[DOC]` `docs/tutorials/first-debug.md` doesn't reference the `.soroban-debug.toml` config file, which new users would benefit from knowing about early.
 - **I-042** `[DOC]` `docs/tutorials/scenario-runner.md` shows TOML structure but doesn't document all TOML keys (e.g., `timeout`, `expected_events`, `skip`).
 - **I-043** `[DOC]` `docs/tutorials/debug-auth-errors.md` has empty checkbox items that suggest the tutorial is incomplete.
-- **I-044** `[DOC]` `docs/tutorials/symbolic-analysis-budgets.md` doesn't explain how to interpret the exploration report or act on findings.
-- **I-045** `[DOC]` `docs/tutorials/understanding-budget.md` covers CPU/memory budget but doesn't mention the `--budget-trend` flag or history-based regression detection.
+- **I-044** ~`[DOC]` `docs/tutorials/symbolic-analysis-budgets.md` doesn't explain how to interpret the exploration report or act on findings.~
+- **I-045** ~`[DOC]` `docs/tutorials/understanding-budget.md` covers CPU/memory budget but doesn't mention the `--budget-trend` flag or history-based regression detection.~
 - **I-046** `[DOC]` `docs/doc/tutorials/video-token-transfer.md` lives under `docs/doc/tutorials/` rather than `docs/tutorials/` — inconsistent nesting that breaks the docs IA.
 - **I-047** `[IA]` No tutorial covers plugin development end-to-end; `docs/plugin-api.md` is a reference, not a tutorial.
 - **I-048** `[DOC]` No tutorial covers the VS Code extension setup (installing the extension, writing a `launch.json`, setting breakpoints).
 - **I-049** `[DOC]` No tutorial covers using the TUI (`soroban-debug tui`) — the feature is mentioned in the command index but has no guide.
 - **I-050** `[DOC]` No tutorial covers the upgrade-check workflow (building two WASM versions, running the check, interpreting Safe/Caution/Breaking output).
 - **I-051** `[DOC]` No tutorial covers the REPL (`soroban-debug repl`) — how to enter it, issue commands, and exit.
-- **I-052** `[DOC]` No tutorial covers remote debugging in a CI environment (the typical DevOps use case beyond the local SSH-tunnel workaround).
+- **I-052** ~`[DOC]` No tutorial covers remote debugging in a CI environment (the typical DevOps use case beyond the local SSH-tunnel workaround).~
 
 ---
 
 ## Section E — Contributor Workflow (Issues 53–70)
+
+Roadmap view: [Section E priorities](roadmap-priorities.md#section-e--contributor-workflow)
 
 - **I-053** `[CONTRIB]` `CONTRIBUTING.md` says "Check the issue tracker for open issues and labels like `good first issue`" but doesn't link to the actual filtered GitHub URL.
 - **I-054** `[CONTRIB]` `CONTRIBUTING.md` "Areas for Contribution" lists items in free text; it should link to concrete open GitHub issues or project board columns.
@@ -119,6 +139,8 @@
 
 ## Section F — Release Operations (Issues 71–82)
 
+Roadmap view: [Section F priorities](roadmap-priorities.md#section-f--release-operations)
+
 - **I-071** `[RELEASE]` `docs/release-checklist.md` requires `CHANGELOG.md` to be updated but provides no example entry format, no link to `cliff.toml`, and no `git-cliff` invocation command.
 - **I-072** `[RELEASE]` The release checklist sign-off section uses `@____` placeholder syntax; there is no documented process for assigning owners before a release cycle begins.
 - **I-073** `[RELEASE]` The benchmark threshold (10%/20%) is hardcoded in the release checklist but the actual values are also set in CI scripts — the two can drift without detection.
@@ -136,6 +158,8 @@
 
 ## Section G — Repo Health and Meta (Issues 83–93)
 
+Roadmap view: [Section G priorities](roadmap-priorities.md#section-g--repo-health-and-meta)
+
 - **I-083** `[META]` Several implementation-summary files (`BATCH_EXECUTION_SUMMARY.md`, `IMPLEMENTATION_SUMMARY.md`, `PLUGIN_RELOAD_DIFF_IMPLEMENTATION.md`, `FLAMEGRAPH_IMPLEMENTATION.md`) live in the root and appear to be one-off delivery notes rather than living documentation; a policy for these files is needed.
 - **I-084** `[META]` `PR_DESCRIPTION.md` lives in the repo root — it appears to be a leftover from a PR and should be removed or archived.
 - **I-085** `[META]` No `SECURITY.md` file exists; GitHub displays a warning and security researchers have no disclosed contact point.
@@ -151,6 +175,8 @@
 ---
 
 ## Section H — DX and Tooling Quality (Issues 94–100)
+
+Roadmap view: [Section H priorities](roadmap-priorities.md#section-h--dx-and-tooling-quality)
 
 - **I-094** `[DX]` `docs/getting-started.md` (3001 bytes) is the natural entry point for new users but is not linked from the README "Quick Start" section.
 - **I-095** `[DX]` The `feature-matrix.md` "Maintaining This Document" section tells editors which source files to check but doesn't describe a process to detect drift (e.g., a CI check that flags undocumented flags).

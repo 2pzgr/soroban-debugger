@@ -191,6 +191,10 @@ pub struct TimelinePausePoint {
     /// Monotonic sequence number within this artifact.
     pub index: usize,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breakpoint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_count: Option<u64>,
     pub location: Option<SourceLocation>,
     /// Call stack snapshot at the pause point (best-effort).
     pub call_stack: Vec<CallFrame>,
@@ -287,5 +291,27 @@ impl TimelineStorageDelta {
             triggered_alerts,
             truncated,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pause_point_serializes_breakpoint_hit_count() {
+        let pause = TimelinePausePoint {
+            index: 0,
+            reason: "breakpoint".to_string(),
+            breakpoint_id: Some("transfer".to_string()),
+            hit_count: Some(3),
+            location: None,
+            call_stack: Vec::new(),
+        };
+
+        let value = serde_json::to_value(pause).unwrap();
+
+        assert_eq!(value["breakpoint_id"], "transfer");
+        assert_eq!(value["hit_count"], 3);
     }
 }

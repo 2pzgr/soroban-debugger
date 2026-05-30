@@ -344,6 +344,39 @@ soroban-debug compare before.json after.json
 
 Look for budget improvements in the diff.
 
+## Tracking Budget Trends and Regressions
+
+The Soroban debugger can analyze historical budget usage to detect performance regressions automatically over time. This is particularly useful in CI environments to prevent inefficient code from being merged.
+
+### The `--budget-trend` Flag
+
+By running your execution with the `--budget-trend` flag, the debugger analyzes previous execution records to visualize how your contract's resource usage has changed over recent runs:
+
+```bash
+soroban-debug run \
+  --contract contract.wasm \
+  --function process \
+  --budget-trend
+```
+
+**Example Output:**
+```
+Budget Trend (last 5 runs):
+  Run 1: 15,234 CPU
+  Run 2: 15,234 CPU
+  Run 3: 15,300 CPU
+  Run 4: 8,456,789 CPU ⚠ REGRESSION DETECTED
+  Run 5: 8,456,789 CPU
+
+Analysis: CPU usage increased by 55,419% between Run 3 and Run 4.
+```
+
+### History-Based Regression Detection
+
+The debugger maintains a baseline of your contract's budget consumption. If a new code change causes a statistically significant increase in CPU instructions or memory usage compared to the baseline, the debugger will flag it as a **history-based regression**.
+
+You can configure the sensitivity of this detection in your project's configuration or via CLI flags to catch inefficiencies early in your development lifecycle.
+
 ## Real-World Budget Limits
 
 **Current Soroban Mainnet Limits (as of 2024):**

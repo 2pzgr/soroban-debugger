@@ -4,7 +4,7 @@
 .SH NAME
 soroban\-debug \- A debugger for Soroban smart contracts
 .SH SYNOPSIS
-\fBsoroban\-debug\fR [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-no\-banner\fR] [\fB\-\-history\-file\fR] [\fB\-\-budget\-trend\fR] [\fB\-\-trend\-contract\fR] [\fB\-\-trend\-function\fR] [\fB\-\-trend\-regression\-threshold\-pct\fR] [\fB\-\-trend\-regression\-lookback\fR] [\fB\-\-trend\-regression\-smoothing\fR] [\fB\-\-version\-verbose\fR] [\fB\-\-list\-functions\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
+\fBsoroban\-debug\fR [\fB\-q\fR|\fB\-\-quiet\fR] [\fB\-v\fR|\fB\-\-verbose\fR] [\fB\-\-no\-banner\fR] [\fB\-\-history\-file\fR] [\fB\-\-budget\-trend\fR] [\fB\-\-trend\-contract\fR] [\fB\-\-trend\-function\fR] [\fB\-\-trend\-regression\-threshold\-pct\fR] [\fB\-\-trend\-regression\-lookback\fR] [\fB\-\-trend\-regression\-smoothing\fR] [\fB\-\-pretty\fR] [\fB\-\-version\-verbose\fR] [\fB\-\-list\-functions\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 A debugger for Soroban smart contracts
 .SH OPTIONS
@@ -43,6 +43,9 @@ Filter budget trend by function name
 .TP
 \fB\-\-trend\-regression\-smoothing\fR \fI<N>\fR [default: 1]
 
+.TP
+\fB\-\-pretty\fR
+Pretty\-print JSON outputs instead of compact JSON
 .TP
 \fB\-\-version\-verbose\fR
 Show detailed version information
@@ -107,6 +110,12 @@ Generate shell completion scripts
 .TP
 soroban\-debug\-history\-prune(1)
 Prune or compact run history according to a retention policy
+.TP
+soroban\-debug\-plugin\-trust\-report(1)
+Generate a trust and security report for all loaded plugins
+.TP
+soroban\-debug\-plugin\-inspect(1)
+Inspect a specific plugin\*(Aqs capabilities and metadata
 .TP
 soroban\-debug\-doctor(1)
 Report runtime health and diagnostics for troubleshooting

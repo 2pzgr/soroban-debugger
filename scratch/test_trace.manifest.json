@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_group": "replay_artifacts",
+  "created_at": "2026-05-28T15:13:20.272312+00:00",
+  "label": "Execution of increment on tests/fixtures/wasm/counter.wasm",
+  "contract": "tests/fixtures/wasm/counter.wasm",
+  "function": "increment",
+  "files": [
+    {
+      "kind": "trace",
+      "path": "scratch/test_trace.json",
+      "description": "Primary execution trace used for replay"
+    },
+    {
+      "kind": "manifest",
+      "path": "scratch/test_trace.manifest.json",
+      "description": "Replay artifact manifest"
+    },
+    {
+      "kind": "contract_wasm",
+      "path": "tests/fixtures/wasm/counter.wasm",
+      "description": "Contract WASM used to generate the trace"
+    }
+  ]
+}

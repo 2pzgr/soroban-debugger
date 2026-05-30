@@ -1,0 +1,26 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH plugin-trust-report 1  "plugin-trust-report " 
+.SH NAME
+plugin\-trust\-report \- Generate a trust and security report for all loaded plugins
+.SH SYNOPSIS
+\fBplugin\-trust\-report\fR [\fB\-\-format\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Generate a trust and security report for all loaded plugins
+.SH OPTIONS
+.TP
+\fB\-\-format\fR \fI<FORMAT>\fR [default: pretty]
+Output format (pretty, json)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+pretty
+.IP \(bu 2
+json
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

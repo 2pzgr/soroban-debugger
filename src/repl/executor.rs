@@ -35,7 +35,8 @@ impl ReplExecutor {
             .map(|sig| (sig.name.clone(), sig))
             .collect();
         let executor = ContractExecutor::new(wasm_bytes)?;
-        let mut engine = crate::debugger::engine::DebuggerEngine::new(executor, Vec::new());
+        let mut engine =
+            crate::debugger::engine::DebuggerEngine::new(executor, Vec::new(), Vec::new());
         engine.executor_mut().enable_mock_all_auths();
 
         if let Some(snapshot_path) = &config.network_snapshot {
@@ -87,12 +88,25 @@ impl ReplExecutor {
 
         // Check if we should break before starting
         if self.engine.breakpoints().should_break(function) {
-            self.engine.prepare_breakpoint_stop(function, args_ref);
-            crate::logging::log_display(
-                format!("Execution paused at function: {}", function),
-                crate::logging::LogLevel::Warn,
-            );
-            return Ok(());
+            let storage = self.engine.executor().get_storage_snapshot()?;
+            if let Some(hit) = self
+                .engine
+                .breakpoints_mut()
+                .on_hit(function, &storage, args_ref)?
+            {
+                for message in hit.log_messages {
+                    crate::logging::log_display(message, crate::logging::LogLevel::Info);
+                }
+
+                if hit.should_pause {
+                    self.engine.prepare_breakpoint_stop(function, args_ref);
+                    crate::logging::log_display(
+                        format!("Execution paused at function: {}", function),
+                        crate::logging::LogLevel::Warn,
+                    );
+                    return Ok(());
+                }
+            }
         }
 
         let storage_before = self.engine.executor().get_storage_snapshot()?;

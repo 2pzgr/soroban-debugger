@@ -74,7 +74,9 @@ fn should_show_banner(args: &Cli) -> bool {
 fn main() -> miette::Result<()> {
     Formatter::configure_colors_from_env();
 
-    let mut cli = Cli::parse();
+    let cli = Cli::parse();
+    soroban_debugger::output::set_pretty_json(cli.pretty);
+
     if let Some(ref history_file) = cli.history_file {
         std::env::set_var("SOROBAN_DEBUG_HISTORY_FILE", history_file);
     }
@@ -83,17 +85,13 @@ fn main() -> miette::Result<()> {
     }
     check_deprecated_flags();
 
-    let run_json_output_requested = matches!(
-        cli.command.as_ref(),
-        Some(Commands::Run(args))
-            if args.output_format == soroban_debugger::cli::args::OutputFormat::Json
-                || args.json
-                || args
-                    .format
-                    .as_deref()
-                    .is_some_and(|f| f.eq_ignore_ascii_case("json"))
-    );
-    let verbosity = cli.verbosity();
+    let is_json = is_cli_json_mode(&cli);
+    let command_name = get_command_name(&cli);
+    let verbosity = if is_json {
+        Verbosity::Quiet
+    } else {
+        cli.verbosity()
+    };
 
     Formatter::set_verbosity(verbosity_to_level(verbosity));
     initialize_tracing(verbosity);
@@ -143,6 +141,13 @@ fn main() -> miette::Result<()> {
                 .map_err(|e: std::io::Error| miette::miette!(e))
                 .and_then(|rt| rt.block_on(soroban_debugger::cli::commands::repl(args)))
         }
+        Some(Commands::PluginTrustReport(args)) => {
+            soroban_debugger::cli::commands::plugin_trust_report(args)
+        }
+        Some(Commands::PluginInspect(args)) => {
+            soroban_debugger::cli::commands::plugin_inspect(args)
+        }
+        Some(Commands::Doctor(args)) => soroban_debugger::cli::commands::doctor(args),
         Some(Commands::External(argv)) => {
             if argv.is_empty() {
                 return Err(miette::miette!("Missing plugin subcommand"));
@@ -231,7 +236,6 @@ fn main() -> miette::Result<()> {
                 return soroban_debugger::cli::commands::inspect(
                     soroban_debugger::cli::args::InspectArgs {
                         contract: path,
-                        wasm: None,
                         functions: true,
                         metadata: false,
                         format: soroban_debugger::cli::args::OutputFormat::Pretty,
@@ -262,7 +266,38 @@ fn main() -> miette::Result<()> {
         }
     };
 
+fn is_cli_json_mode(cli: &Cli) -> bool {
+    match &cli.command {
+        Some(Commands::Run(args)) => args.is_json_output(),
+        Some(Commands::Inspect(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        Some(Commands::Optimize(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        Some(Commands::UpgradeCheck(args)) => args.output == "json",
+        Some(Commands::Analyze(args)) => args.format == "json",
+        Some(Commands::Remote(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        Some(Commands::Doctor(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        Some(Commands::Replay(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        Some(Commands::Symbolic(args)) => args.format == soroban_debugger::cli::args::OutputFormat::Json,
+        _ => false,
+    }
+}
+
+fn get_command_name(cli: &Cli) -> String {
+    match &cli.command {
+        Some(Commands::Run(_)) => "run",
+        Some(Commands::Inspect(_)) => "inspect",
+        Some(Commands::Optimize(_)) => "optimize",
+        Some(Commands::UpgradeCheck(_)) => "upgrade-check",
+        Some(Commands::Analyze(_)) => "analyze",
+        Some(Commands::Remote(_)) => "remote",
+        Some(Commands::Doctor(_)) => "doctor",
+        Some(Commands::Replay(_)) => "replay",
+        Some(Commands::Symbolic(_)) => "symbolic",
+        _ => "unknown",
+    }.to_string()
+}
+
     if let Err(err) = result {
+        let err: miette::Report = err;
         if run_json_output_requested {
             let mut message = err.to_string();
             if let Some(help) = err.help() {
@@ -272,6 +307,38 @@ fn main() -> miette::Result<()> {
                 "run", message,
             );
             if let Ok(json) = serde_json::to_string_pretty(&output) {
+        if is_json {
+            let message = err.to_string();
+            let code = err.code().map(|c| c.to_string());
+            let suggestion = err.help().map(|h| h.to_string());
+
+            let category = if let Some(ref c) = code {
+                match c.as_str() {
+                    "debugger::request_timeout" => Some("timeout".to_string()),
+                    "debugger::invalid_arguments" | "debugger::invalid_function" => Some("parser_failure".to_string()),
+                    "debugger::auth_failed" => Some("auth_failure".to_string()),
+                    _ => Some(soroban_debugger::output::categorize_error(&message).to_string()),
+                }
+            } else {
+                Some(soroban_debugger::output::categorize_error(&message).to_string())
+            };
+
+            let output_err = soroban_debugger::output::OutputError {
+                message,
+                code,
+                category,
+                suggestion,
+            };
+
+            let output = soroban_debugger::output::VersionedOutput::<serde_json::Value> {
+                schema_version: soroban_debugger::output::SCHEMA_VERSION,
+                command: command_name.clone(),
+                status: soroban_debugger::output::OutputStatus::Error,
+                result: None,
+                error: Some(output_err),
+            };
+
+            if let Ok(json) = soroban_debugger::output::to_json_string(&output) {
                 println!("{}", json);
             }
         }

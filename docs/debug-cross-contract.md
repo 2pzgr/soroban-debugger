@@ -176,7 +176,80 @@ Event: "incremented" = 6
 
 ---
 
-## 8. Git Workflow
+## 8. Isolating Cross-Contract Calls with `--mock`
+
+When debugging the caller contract in isolation, you often do not want the callee contract to execute for real — either because it is not deployed locally, its side-effects interfere with the test, or you simply want to focus on the caller's logic. The `--mock` flag lets you intercept any cross-contract call and return a fixed value instead.
+
+### Syntax
+
+```bash
+soroban-debugger <contract.wasm> --function <fn> \
+  --mock "<CONTRACT_ID>.<function>=<return_value>"
+```
+
+The flag is repeatable. Each `--mock` entry specifies:
+
+| Part | Description |
+|---|---|
+| `CONTRACT_ID` | The contract address whose calls you want to intercept. |
+| `function` | The specific function name on that contract to mock. |
+| `return_value` | The value the mock returns to the caller, expressed as a Soroban-compatible literal. |
+
+### Example: mock the callee during caller debugging
+
+```bash
+soroban-debugger examples/contracts/cross-contract/caller_contract.wasm \
+  --function call_increment \
+  --mock "CALLEE_CONTRACT_ID.increment=7"
+```
+
+With this command, any call from `CallerContract` to `CalleeContract::increment` is intercepted and returns `7` immediately — the callee WASM never executes.
+
+### Mocking multiple callees
+
+```bash
+soroban-debugger caller_contract.wasm --function call_increment \
+  --mock "CONTRACT_A.increment=7" \
+  --mock "CONTRACT_B.get_price=100"
+```
+
+### Mock call log
+
+After the session completes, the debugger prints a **Mock Contract Calls** log summarising every cross-contract call observed during execution and whether it was intercepted (`MOCKED`) or passed through to the real contract (`REAL`):
+
+```
+--- Mock Contract Calls ---
+1. MOCKED  CALLEE_CONTRACT_ID increment (args: [5]) -> 7
+2. REAL    OTHER_CONTRACT_ID  other_fn  (args: [])  -> 42
+```
+
+This log helps you verify that mocked call sites were actually reached during the debug session.
+
+### VS Code launch configuration
+
+In `.vscode/launch.json`, pass mocks via the `mock` array:
+
+```json
+{
+  "type": "soroban-debugger",
+  "request": "launch",
+  "mock": [
+    "CALLEE_CONTRACT_ID.increment=7"
+  ]
+}
+```
+
+### When to use `--mock`
+
+* The callee contract binary is not available locally.
+* You want deterministic callee responses to reproduce a specific caller code path.
+* You are writing unit-style debugging sessions focused on a single contract boundary.
+
+For more advanced mock patterns (storage setup, event expectations), see [mock-helpers.md](mock-helpers.md).
+
+---
+
+## 9. Git Workflow
 
 ```bash
 git checkout -b docs/tutorial-cross-contract
@@ -190,7 +263,7 @@ git push origin docs/tutorial-cross-contract
 
 ---
 
-## 9. Next Steps
+## 10. Next Steps
 
 * Try nested cross-contract calls and watch the stack grow.
 * Add more complex callee logic and test how the caller handles it.

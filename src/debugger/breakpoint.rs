@@ -15,7 +15,8 @@ pub struct Breakpoint {
     /// Optional log message with variable interpolation (e.g., "Balance: {balance}")
     pub log_message: Option<String>,
     /// Number of times this breakpoint has been hit
-    pub hit_count: usize,
+    #[serde(default)]
+    pub hit_count: u64,
 }
 
 impl Breakpoint {
@@ -89,6 +90,8 @@ pub struct BreakpointSpec {
 
 #[derive(Debug, Clone, Default)]
 pub struct BreakpointHit {
+    pub breakpoint_id: String,
+    pub hit_count: u64,
     pub should_pause: bool,
     pub log_messages: Vec<String>,
     pub pause_reason: Option<String>,
@@ -264,6 +267,8 @@ impl BreakpointManager {
             .into_iter()
             .collect();
         Ok(Some(BreakpointHit {
+            breakpoint_id: bp.id.clone(),
+            hit_count: bp.hit_count,
             should_pause: !bp.is_log_point(),
             log_messages,
             pause_reason: (!bp.is_log_point()).then(|| "breakpoint".to_string()),
@@ -379,12 +384,12 @@ fn interpolate_log_message(
 }
 
 /// Evaluate a hit condition against the current hit count
-fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Result<bool> {
+fn evaluate_hit_condition(hit_condition: &str, hit_count: u64) -> crate::Result<bool> {
     let hit_condition = hit_condition.trim();
 
     // Format: >N, >=N, ==N, <N, <=N, %N==0, or just N (equivalent to >=N)
     if let Some(stripped) = hit_condition.strip_prefix(">=") {
-        let n: usize = stripped.trim().parse().map_err(|_| {
+        let n: u64 = stripped.trim().parse().map_err(|_| {
             crate::DebuggerError::BreakpointError(format!(
                 "Invalid number in hit condition: {}",
                 stripped
@@ -394,7 +399,7 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
     }
 
     if let Some(stripped) = hit_condition.strip_prefix('>') {
-        let n: usize = stripped.trim().parse().map_err(|_| {
+        let n: u64 = stripped.trim().parse().map_err(|_| {
             crate::DebuggerError::BreakpointError(format!(
                 "Invalid number in hit condition: {}",
                 stripped
@@ -404,7 +409,7 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
     }
 
     if let Some(stripped) = hit_condition.strip_prefix("==") {
-        let n: usize = stripped.trim().parse().map_err(|_| {
+        let n: u64 = stripped.trim().parse().map_err(|_| {
             crate::DebuggerError::BreakpointError(format!(
                 "Invalid number in hit condition: {}",
                 stripped
@@ -414,7 +419,7 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
     }
 
     if let Some(stripped) = hit_condition.strip_prefix("<=") {
-        let n: usize = stripped.trim().parse().map_err(|_| {
+        let n: u64 = stripped.trim().parse().map_err(|_| {
             crate::DebuggerError::BreakpointError(format!(
                 "Invalid number in hit condition: {}",
                 stripped
@@ -424,7 +429,7 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
     }
 
     if let Some(stripped) = hit_condition.strip_prefix('<') {
-        let n: usize = stripped.trim().parse().map_err(|_| {
+        let n: u64 = stripped.trim().parse().map_err(|_| {
             crate::DebuggerError::BreakpointError(format!(
                 "Invalid number in hit condition: {}",
                 stripped
@@ -439,13 +444,13 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
         if parts.len() == 2 {
             let rest: Vec<&str> = parts[1].split("==").collect();
             if rest.len() == 2 {
-                let n: usize = rest[0].trim().parse().map_err(|_| {
+                let n: u64 = rest[0].trim().parse().map_err(|_| {
                     crate::DebuggerError::BreakpointError(format!(
                         "Invalid modulo in hit condition: {}",
                         rest[0]
                     ))
                 })?;
-                let expected: usize = rest[1].trim().parse().map_err(|_| {
+                let expected: u64 = rest[1].trim().parse().map_err(|_| {
                     crate::DebuggerError::BreakpointError(format!(
                         "Invalid value in hit condition: {}",
                         rest[1]
@@ -463,7 +468,7 @@ fn evaluate_hit_condition(hit_condition: &str, hit_count: usize) -> crate::Resul
     }
 
     // Plain number means "break when hit count >= N"
-    if let Ok(n) = hit_condition.parse::<usize>() {
+    if let Ok(n) = hit_condition.parse::<u64>() {
         return Ok(hit_count >= n);
     }
 
@@ -510,7 +515,7 @@ fn is_valid_hit_condition(s: &str) -> bool {
     }
 
     // Check if it's just a number
-    s.parse::<usize>().is_ok()
+    s.parse::<u64>().is_ok()
 }
 
 impl Default for BreakpointManager {
@@ -613,6 +618,7 @@ mod tests {
         manager.add("transfer");
         assert!(manager.should_break("transfer"));
         assert!(!manager.should_break("mint"));
+        assert_eq!(manager.get("transfer").unwrap().hit_count, 0);
     }
 
     #[test]
@@ -957,6 +963,79 @@ mod tests {
             .should_break_with_context("transfer", &evaluator)
             .unwrap();
         assert_eq!(manager.get("transfer").unwrap().hit_count, 3);
+    }
+
+    #[test]
+    fn test_hit_counts_are_independent() {
+        let mut manager = BreakpointManager::new();
+        manager.add("transfer");
+        manager.add("mint");
+        let evaluator = MockEvaluator::new();
+
+        manager
+            .should_break_with_context("transfer", &evaluator)
+            .unwrap();
+        manager
+            .should_break_with_context("transfer", &evaluator)
+            .unwrap();
+        manager
+            .should_break_with_context("mint", &evaluator)
+            .unwrap();
+
+        assert_eq!(manager.get("transfer").unwrap().hit_count, 2);
+        assert_eq!(manager.get("mint").unwrap().hit_count, 1);
+    }
+
+    #[test]
+    fn test_missing_or_removed_breakpoint_does_not_increment() {
+        let mut manager = BreakpointManager::new();
+        manager.add("transfer");
+        assert!(manager.remove("transfer"));
+
+        let evaluator = MockEvaluator::new();
+        let (should_break, log) = manager
+            .should_break_with_context("transfer", &evaluator)
+            .unwrap();
+
+        assert!(!should_break);
+        assert!(log.is_none());
+        assert!(manager.get("transfer").is_none());
+    }
+
+    #[test]
+    fn test_on_hit_returns_hit_count_metadata() {
+        let mut manager = BreakpointManager::new();
+        manager.add_spec(BreakpointSpec {
+            id: "bp-1".to_string(),
+            function: "transfer".to_string(),
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+        });
+
+        let first = manager
+            .on_hit("transfer", &HashMap::new(), None)
+            .unwrap()
+            .unwrap();
+        let second = manager
+            .on_hit("transfer", &HashMap::new(), None)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(first.breakpoint_id, "bp-1");
+        assert_eq!(first.hit_count, 1);
+        assert_eq!(second.breakpoint_id, "bp-1");
+        assert_eq!(second.hit_count, 2);
+    }
+
+    #[test]
+    fn test_breakpoint_json_includes_hit_count() {
+        let mut breakpoint = Breakpoint::simple("transfer".to_string());
+        breakpoint.increment_hit();
+
+        let value = serde_json::to_value(&breakpoint).unwrap();
+
+        assert_eq!(value["hit_count"], 1);
     }
 
     #[test]

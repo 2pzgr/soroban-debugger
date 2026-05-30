@@ -15,6 +15,8 @@ pub struct PathResult {
     pub return_value: Option<String>,
     pub panic: Option<String>,
     pub path_decisions: Vec<crate::server::protocol::DynamicTraceEvent>,
+    pub severity: String,
+    pub rule_mappings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -26,7 +28,7 @@ pub struct SymbolicReport {
     pub metadata: SymbolicReportMetadata,
 }
 
-#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
 pub struct SymbolicConfig {
     pub max_paths: usize,
     pub max_input_combinations: usize,
@@ -41,6 +43,7 @@ pub struct SymbolicConfig {
     /// This allows testing how different storage states affect contract behavior.
     /// The storage is a map of key-value pairs.
     pub storage_seed: Option<String>,
+    pub storage_read_pressure_threshold: Option<f64>,
 }
 
 impl Default for SymbolicConfig {
@@ -59,6 +62,7 @@ impl SymbolicConfig {
             max_depth: 3,
             seed: None,
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         }
     }
     pub const fn fast() -> Self {
@@ -70,6 +74,7 @@ impl SymbolicConfig {
             max_depth: 2,
             seed: None,
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         }
     }
 
@@ -86,6 +91,7 @@ impl SymbolicConfig {
             max_depth: 5,
             seed: None,
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         }
     }
 }
@@ -144,6 +150,16 @@ pub struct SymbolicReportMetadata {
     /// `--replay` (or `--seed`) on a subsequent run to reproduce the identical
     /// exploration order.
     pub seed: Option<u64>,
+    /// Coverage metrics: unique functions reached during symbolic exploration.
+    pub unique_functions_reached: usize,
+    /// Coverage metrics: total functions available in the WASM module.
+    pub total_functions_available: usize,
+    /// Coverage metrics: approximate branch coverage indicator (branches touched).
+    pub branches_touched: usize,
+    /// Coverage metrics: duplicate input combinations suppressed.
+    pub duplicates_suppressed: usize,
+    /// Coverage metrics: whether the exploration hit the path cap.
+    pub exploration_cap_reached: bool,
     pub coverage_fraction: f32,
     pub uncovered_regions: Vec<String>,
 }
@@ -192,12 +208,73 @@ impl SymbolicAnalyzer {
         Self
     }
 
+
+
+    fn grade_path(
+        outcome: &std::result::Result<String, String>,
+        path_decisions: &[crate::server::protocol::DynamicTraceEvent],
+        config: &SymbolicConfig,
+    ) -> (String, Vec<String>) {
+        use crate::server::protocol::DynamicTraceEventKind;
+        let mut severity = "Informational".to_string();
+        let mut rules = Vec::new();
+
+        if let Err(err_str) = outcome {
+            severity = "Suspicious".to_string();
+            rules.push("ERR-001: Execution Panic".to_string());
+
+            // Heuristic for high severity arithmetic issues
+            if err_str.contains("Arithmetic")
+                || err_str.contains("overflow")
+                || err_str.contains("underflow")
+            {
+                severity = "Release-Blocking".to_string();
+                rules.push("SEC-002: Arithmetic Safety Violation".to_string());
+            }
+        }
+
+        // Check for storage read pressure
+        let storage_reads = path_decisions
+            .iter()
+            .filter(|e| matches!(e.kind, DynamicTraceEventKind::StorageRead))
+            .count();
+        if let Some(threshold) = config.storage_read_pressure_threshold {
+            if storage_reads as f64 > threshold {
+                severity = if severity == "Informational" {
+                    "Suspicious".to_string()
+                } else {
+                    severity
+                };
+                rules.push("PERF-001: High Storage Read Pressure".to_string());
+            }
+        }
+
+        // Check for missing authorization on sensitive paths
+        let has_auth = path_decisions
+            .iter()
+            .any(|e| matches!(e.kind, DynamicTraceEventKind::Authorization));
+        let has_write = path_decisions
+            .iter()
+            .any(|e| matches!(e.kind, DynamicTraceEventKind::StorageWrite));
+        if has_write && !has_auth {
+            severity = if severity == "Release-Blocking" {
+                severity
+            } else {
+                "Suspicious".to_string()
+            };
+            rules.push("SEC-003: Unauthenticated Storage Write".to_string());
+        }
+
+        (severity, rules)
+    }
+
     fn record_outcome(
         report: &mut SymbolicReport,
         seen_inputs: &mut HashSet<String>,
         inputs: &str,
         outcome: std::result::Result<String, String>,
         path_decisions: Vec<crate::server::protocol::DynamicTraceEvent>,
+        config: &SymbolicConfig,
     ) {
         // Keep distinct paths even when outputs/errors are identical.
         // Only dedupe when the exact same input set is re-encountered.
@@ -205,12 +282,16 @@ impl SymbolicAnalyzer {
             return;
         }
 
+        let (severity, rule_mappings) = Self::grade_path(&outcome, &path_decisions, config);
+
         match outcome {
             Ok(val) => report.paths.push(PathResult {
                 inputs: inputs.to_string(),
                 return_value: Some(val),
                 panic: None,
                 path_decisions,
+                severity,
+                rule_mappings,
             }),
             Err(err_str) => {
                 report.panics_found += 1;
@@ -219,6 +300,8 @@ impl SymbolicAnalyzer {
                     return_value: None,
                     panic: Some(err_str),
                     path_decisions,
+                    severity,
+                    rule_mappings,
                 });
             }
         }
@@ -251,6 +334,10 @@ impl SymbolicAnalyzer {
         }
         let deadline = Instant::now();
 
+        // Extract all available functions for coverage analysis
+        let all_functions = crate::utils::wasm::parse_functions(wasm).unwrap_or_default();
+        let total_functions = all_functions.len();
+
         let mut report = SymbolicReport {
             function: function.to_string(),
             paths_explored: 0,
@@ -266,16 +353,23 @@ impl SymbolicAnalyzer {
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
                 seed: config.seed,
+                unique_functions_reached: 0,
+                total_functions_available: total_functions,
+                branches_touched: 0,
+                duplicates_suppressed: 0,
+                exploration_cap_reached: false,
                 coverage_fraction: 0.0,
                 uncovered_regions: Vec::new(),
             },
         };
 
         let mut seen_inputs = HashSet::new();
+        let mut reached_functions = HashSet::new();
 
         for args_json in &generated_inputs.combinations {
             if report.paths_explored >= config.max_paths {
                 report.metadata.truncated_by_path_cap = true;
+                report.metadata.exploration_cap_reached = true;
                 break;
             }
 
@@ -318,23 +412,35 @@ impl SymbolicAnalyzer {
 
             match executor_res {
                 Ok(val) => {
-                    Self::record_outcome(&mut report, &mut seen_inputs, args_json, Ok(val), trace);
+                    Self::record_outcome(&mut report, &mut seen_inputs, args_json, Ok(val), trace, config);
                 }
                 Err(err) => {
+                    // Track the target function as reached
+                    reached_functions.insert(function.to_string());
                     Self::record_outcome(
                         &mut report,
                         &mut seen_inputs,
                         args_json,
                         Err(err.to_string()),
                         trace,
+                        config,
                     );
                 }
             }
+            
             report.paths_explored += 1;
         }
 
         report.metadata.attempted_input_combinations = report.paths_explored;
         report.metadata.distinct_paths_recorded = report.paths.len();
+        report.metadata.unique_functions_reached = reached_functions.len();
+        // Duplicates = total attempts - distinct paths recorded
+        report.metadata.duplicates_suppressed = report.paths_explored.saturating_sub(report.paths.len());
+        
+        // Estimate branches touched: each distinct path represents at least one branch decision
+        // This is a conservative estimate - in reality, each path may touch multiple branches
+        report.metadata.branches_touched = report.paths.len();
+        
         if report.metadata.truncated_by_input_cap {
             report.metadata.truncation_reasons.push(format!(
                 "input combination cap reached at {} generated combinations",
@@ -769,6 +875,39 @@ impl SymbolicAnalyzer {
             report.metadata.truncated_by_timeout
         )
         .unwrap();
+        
+        // Add coverage metrics to TOML
+        writeln!(
+            toml,
+            "unique_functions_reached = {}",
+            report.metadata.unique_functions_reached
+        )
+        .unwrap();
+        writeln!(
+            toml,
+            "total_functions_available = {}",
+            report.metadata.total_functions_available
+        )
+        .unwrap();
+        writeln!(
+            toml,
+            "branches_touched = {}",
+            report.metadata.branches_touched
+        )
+        .unwrap();
+        writeln!(
+            toml,
+            "duplicates_suppressed = {}",
+            report.metadata.duplicates_suppressed
+        )
+        .unwrap();
+        writeln!(
+            toml,
+            "exploration_cap_reached = {}",
+            report.metadata.exploration_cap_reached
+        )
+        .unwrap();
+        
         match report.metadata.seed {
             Some(seed) => writeln!(toml, "seed = {}", seed).unwrap(),
             None => writeln!(
@@ -913,6 +1052,11 @@ mod tests {
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
                 seed: None,
+                unique_functions_reached: 0,
+                total_functions_available: 0,
+                branches_touched: 0,
+                duplicates_suppressed: 0,
+                exploration_cap_reached: false,
                 coverage_fraction: 0.0,
                 uncovered_regions: Vec::new(),
             },
@@ -957,6 +1101,11 @@ mod tests {
                 truncated_by_timeout: false,
                 truncation_reasons: Vec::new(),
                 seed: None,
+                unique_functions_reached: 0,
+                total_functions_available: 0,
+                branches_touched: 0,
+                duplicates_suppressed: 0,
+                exploration_cap_reached: false,
                 coverage_fraction: 0.0,
                 uncovered_regions: Vec::new(),
             },
@@ -1015,6 +1164,7 @@ mod tests {
             max_depth: 3,
             seed: None,
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         };
 
         let report = analyzer
@@ -1070,6 +1220,7 @@ mod tests {
             max_depth: 3,
             seed: Some(99),
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         };
         let config_b = SymbolicConfig {
             seed: Some(99),
@@ -1104,6 +1255,7 @@ mod tests {
             max_depth: 3,
             seed: None,
             storage_seed: None,
+            storage_read_pressure_threshold: Some(0.8),
         };
 
         let report = analyzer
@@ -1137,6 +1289,11 @@ mod tests {
                     "input combination cap reached at 64 generated combinations".to_string(),
                 ],
                 seed: None,
+                unique_functions_reached: 1,
+                total_functions_available: 5,
+                branches_touched: 1,
+                duplicates_suppressed: 0,
+                exploration_cap_reached: false,
                 coverage_fraction: 0.0,
                 uncovered_regions: Vec::new(),
             },
@@ -1225,6 +1382,7 @@ mod tests {
             max_depth: 3,
             seed: None,
             storage_seed: Some(r#"{"counter": 100}"#.to_string()),
+            storage_read_pressure_threshold: Some(0.8),
         };
 
         // The test verifies that the config accepts a storage seed.
@@ -1240,6 +1398,109 @@ mod tests {
     }
 
     #[test]
+    fn analyze_with_config_tracks_coverage_metrics() {
+        let analyzer = SymbolicAnalyzer::new();
+        let wasm = wasm_with_import_and_exported_local();
+        let config = SymbolicConfig {
+            max_paths: 10,
+            max_input_combinations: 36,
+            timeout_secs: 30,
+            max_breadth: 5,
+            max_depth: 3,
+            seed: None,
+            storage_seed: None,
+        };
+
+        let report = analyzer
+            .analyze_with_config(&wasm, "entry", &config)
+            .expect("symbolic analysis should complete");
+
+        // Verify coverage metrics are populated
+        assert!(
+            report.metadata.total_functions_available > 0,
+            "Should detect available functions"
+        );
+        assert!(
+            report.metadata.unique_functions_reached > 0,
+            "Should track reached functions"
+        );
+        assert!(
+            report.metadata.unique_functions_reached <= report.metadata.total_functions_available,
+            "Reached functions cannot exceed available functions"
+        );
+        assert!(
+            report.metadata.branches_touched > 0,
+            "Should estimate branches touched"
+        );
+        // Branches touched should equal distinct paths recorded
+        assert_eq!(
+            report.metadata.branches_touched,
+            report.metadata.distinct_paths_recorded,
+            "Branches touched should equal distinct paths"
+        );
+    }
+
+    #[test]
+    fn analyze_with_config_tracks_duplicates() {
+        let analyzer = SymbolicAnalyzer::new();
+        let wasm = wasm_with_import_and_exported_local();
+        let config = SymbolicConfig {
+            max_paths: 100,
+            max_input_combinations: 10, // Small cap to force duplicates
+            timeout_secs: 30,
+            max_breadth: 3,
+            max_depth: 2,
+            seed: None,
+            storage_seed: None,
+        };
+
+        let report = analyzer
+            .analyze_with_config(&wasm, "entry", &config)
+            .expect("symbolic analysis should complete");
+
+        // Verify duplicate tracking
+        assert!(
+            report.paths_explored >= report.metadata.distinct_paths_recorded,
+            "Explored paths should be >= distinct paths"
+        );
+        let calculated_duplicates =
+            report.paths_explored.saturating_sub(report.paths.len());
+        assert_eq!(
+            report.metadata.duplicates_suppressed, calculated_duplicates,
+            "Duplicates should match calculated value"
+        );
+    }
+
+    #[test]
+    fn analyze_with_config_sets_exploration_cap_flag() {
+        let analyzer = SymbolicAnalyzer::new();
+        let wasm = wasm_with_import_and_exported_local();
+        let config = SymbolicConfig {
+            max_paths: 2, // Very low cap to force hitting the limit
+            max_input_combinations: 36,
+            timeout_secs: 30,
+            max_breadth: 5,
+            max_depth: 3,
+            seed: None,
+            storage_seed: None,
+        };
+
+        let report = analyzer
+            .analyze_with_config(&wasm, "entry", &config)
+            .expect("symbolic analysis should complete");
+
+        assert!(
+            report.metadata.exploration_cap_reached,
+            "Should flag when path cap is reached"
+        );
+        assert!(
+            report.metadata.truncated_by_path_cap,
+            "Should be truncated by path cap"
+        );
+        assert_eq!(
+            report.paths_explored, 2,
+            "Should stop at path cap"
+        );
     fn test_generate_seeds_complex_types() {
         let analyzer = SymbolicAnalyzer;
         let config = SymbolicConfig::default();

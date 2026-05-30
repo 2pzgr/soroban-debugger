@@ -146,6 +146,8 @@ pub struct BreakpointDescriptor {
     pub condition: Option<String>,
     pub hit_condition: Option<String>,
     pub log_message: Option<String>,
+    #[serde(default)]
+    pub hit_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,6 +174,8 @@ pub enum DebugRequest {
         idle_timeout_ms: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reconnect_session_id: Option<String>,
     },
 
     /// Authenticate with the server
@@ -295,6 +299,10 @@ pub enum DebugResponse {
         heartbeat_interval_ms: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         idle_timeout_ms: Option<u32>,
+        /// Opaque session identifier the client can use to reconnect after a
+        /// transient disconnect. Absent on servers that do not support reconnection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reconnect_id: Option<String>,
     },
 
     /// Handshake failed due to protocol mismatch.
@@ -304,6 +312,15 @@ pub enum DebugResponse {
         server_version: String,
         protocol_min: u32,
         protocol_max: u32,
+    },
+
+    /// Handshake rejected because the client requires capabilities the server doesn't support.
+    IncompatibleCapabilities {
+        message: String,
+        /// The capability names the client required but the server lacks.
+        missing_capabilities: Vec<String>,
+        /// What the server does support, so the client can report it.
+        server_capabilities: ServerCapabilities,
     },
 
     /// Authentication result
@@ -352,6 +369,18 @@ pub enum DebugResponse {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pause_reason: Option<String>,
     },
+
+    /// Acknowledgment of a successful session reconnection.
+    ReconnectAck {
+        session_id: String,
+        paused: bool,
+        current_function: Option<String>,
+        breakpoints: Vec<String>,
+        step_count: u64,
+    },
+
+    /// Reconnection failed because the session has expired or been purged.
+    SessionExpired { message: String },
 
     /// Inspection result
     InspectionResult {
@@ -600,5 +629,21 @@ mod tests {
         }"#;
         let event: DynamicTraceEvent = serde_json::from_str(json).unwrap();
         assert_eq!(event.call_depth, Some(5));
+    }
+
+    #[test]
+    fn breakpoint_descriptor_serializes_hit_count() {
+        let descriptor = BreakpointDescriptor {
+            id: "bp-1".to_string(),
+            function: "transfer".to_string(),
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+            hit_count: 3,
+        };
+
+        let value = serde_json::to_value(descriptor).unwrap();
+
+        assert_eq!(value["hit_count"], 3);
     }
 }

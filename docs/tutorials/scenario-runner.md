@@ -36,10 +36,18 @@ Each step in a scenario supports the following fields:
 |-------|------|----------|-------------|
 | `name` | String | Optional | Human-readable name for the step (defaults to function name) |
 | `function` | String | Required | Name of the contract function to call |
-| `args` | String | Optional | JSON array of arguments to pass to the function |
-| `timeout_secs` | Integer | Optional | Per-step execution timeout override in seconds. `0` disables the timeout |
-| `expected_return` | String | Optional | Expected return value (string comparison) |
+| `args` | String | Optional | JSON array of arguments to pass to the function. Supports `{{var}}` interpolation. |
+| `timeout_secs` | Integer | Optional | Per-step execution timeout override in seconds (alias: `timeout`). `0` disables the timeout |
+| `expected_return` | String | Optional | Expected return value (string comparison). Supports `{{var}}` interpolation. |
 | `expected_storage` | Table | Optional | Map of storage keys to expected values |
+| `expected_events` | Array | Optional | List of event assertions (see [Event Assertions](#event-assertions)) |
+| `expected_error` | String | Optional | Expected error message substring (if the step should fail) |
+| `expected_panic` | String | Optional | Expected panic message substring (if the step should panic) |
+| `capture` | String | Optional | Variable name to store the return value for use in later steps |
+| `tags` | Array | Optional | List of category tags for filtering (see [Scenario Tags](../scenario-tags.md)) |
+| `notes` | String | Optional | Documentation note for the step |
+| `skip` | Boolean | Optional | If `true`, the step is skipped during execution |
+| `budget_limits` | Table | Optional | Max budget constraints (see [Budget Limits](#budget-limits)) |
 
 ### Timeout Defaults and Overrides
 
@@ -66,6 +74,42 @@ The `expected_storage` field uses TOML table syntax:
 ```
 
 **Note**: Storage keys and values are compared as strings after trimming whitespace.
+
+### Event Assertions
+
+The `expected_events` field allows you to verify contract events:
+
+```toml
+[[steps.expected_events]]
+topics = ["TOPIC_1", "TOPIC_2"]
+data = "EXPECTED_DATA"
+contract_id = "OPTIONAL_CONTRACT_ID"
+```
+
+### Budget Limits
+
+You can enforce resource limits on a per-step basis:
+
+```toml
+[steps.budget_limits]
+max_cpu_instructions = 1000000
+max_memory_bytes = 1048576
+```
+
+### Variables and Capturing
+
+You can capture a return value and use it in subsequent steps:
+
+```toml
+[[steps]]
+function = "get_id"
+capture = "my_id"
+
+[[steps]]
+function = "process"
+args = '["{{my_id}}", 100]'
+expected_return = "{{my_id}}"
+```
 
 ## Complete Worked Example
 

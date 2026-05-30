@@ -39,6 +39,24 @@ mod debugger {
 }
 
 #[allow(dead_code)]
+mod analyzer {
+    pub mod security {
+        pub enum Severity {
+            Low,
+            Medium,
+            High,
+        }
+    }
+    pub mod symbolic {
+        pub enum SymbolicProfile {
+            Fast,
+            Balanced,
+            Deep,
+        }
+    }
+}
+
+#[allow(dead_code)]
 #[path = "src/cli/args.rs"]
 mod args;
 
