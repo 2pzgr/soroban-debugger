@@ -12,7 +12,7 @@ If you have Rust installed, you can install the debugger directly from source or
 
 ```bash
 # Install from crates.io
-cargo install soroban-debugger
+cargo install --locked soroban-debugger
 ```
 
 ### Option B: Download Pre-built Binaries

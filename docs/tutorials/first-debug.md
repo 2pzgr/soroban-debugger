@@ -16,7 +16,7 @@ To step through Soroban WebAssembly (WASM) execution, you need the Soroban debug
 Install it via Cargo by running the following command in your terminal:
 
 ```bash
-cargo install soroban-debugger
+cargo install --locked soroban-debugger
 ```
 
 Verify the installation was successful by checking the version:
