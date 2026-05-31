@@ -4,6 +4,8 @@ The batch execution feature allows you to run the same contract function with mu
 
 See the [Scenario Cookbook](scenario-cookbook.md) for examples of complex test patterns that can be used in batch execution.
 
+For the architectural rationale, parallelism model, and extension points, see the [Batch Execution Design](design/batch-execution-design.md) document.
+
 ## Usage
 
 ```bash

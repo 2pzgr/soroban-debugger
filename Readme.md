@@ -136,6 +136,12 @@ For precise control, use `{"type": "...", "value": ...}`:
 
 Filter large storage outputs by key pattern using `--storage-filter`:
 
+| Pattern          | Type   | Matches                                |
+|------------------|--------|----------------------------------------|
+| `balance:*`      | Prefix | Keys starting with `balance:`          |
+| `re:^user_\d+$`  | Regex  | Keys matching the regex                |
+| `total_supply`   | Exact  | Only the key `total_supply`            |
+
 ```bash
 # Prefix match: keys starting with "balance:"
 soroban-debug run --contract token.wasm --function mint \
@@ -212,12 +218,6 @@ An exported trace includes versioning, metadata, and full execution state:
   ]
 }
 ```
-
-| Pattern          | Type   | Matches                                |
-|------------------|--------|----------------------------------------|
-| `balance:*`      | Prefix | Keys starting with `balance:`          |
-| `re:^user_\d+$`  | Regex  | Keys matching the regex                |
-| `total_supply`   | Exact  | Only the key `total_supply`            |
 
 ### Interactive Command
 
