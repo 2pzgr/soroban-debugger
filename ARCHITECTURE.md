@@ -94,9 +94,12 @@ graph TD
 
 ## Extension Points
 
-Future contributors can extend the debugger in several ways:
+Contributors can extend the debugger in the following ways:
 
 - **New Commands**: Add new subcommands to the `cli` module to support different debugging workflows.
 - **Custom Inspectors**: Create new inspectors in the `inspector` module to track specific resources or state types (e.g., event logs).
 - **UI Enhancements**: Improve the TUI in the `ui` module to provide better visualization of complex data structures or execution paths.
-- **Backend Adapters**: (Future) Extend `ContractExecutor` to support connecting to remote RPC nodes for live debugging.
+- **Backend Adapters**: Extend `ContractExecutor` to support connecting to remote RPC nodes for live debugging.
+- **Plugin System**: Plugins are loaded from TOML manifests (`plugin.toml`) and can register new CLI subcommands, intercept execution hooks, and publish custom output. See [`docs/plugin-api.md`](docs/plugin-api.md) and [`docs/architecture-plugins.md`](docs/architecture-plugins.md) for the full plugin lifecycle and API surface.
+- **Remote Debug Server**: The `server` / `remote` command pair exposes the debugger over a line-delimited JSON wire protocol (TCP), supporting token authentication and native TLS. New transports or protocol extensions can be added in `src/server/`. See [`docs/architecture-remote.md`](docs/architecture-remote.md) for the design.
+- **Batch Executor**: The `BatchExecutor` in `src/batch.rs` runs multiple argument sets in parallel using Rayon. It can be extended to support new result aggregation strategies, custom assertion formats, or streaming output. See [`docs/design/batch-execution-design.md`](docs/design/batch-execution-design.md) for the canonical design reference.

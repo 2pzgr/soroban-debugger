@@ -53,6 +53,44 @@ soroban-debug remote \
   --args '["user1", 100]'
 ```
 
+### Connect from VS Code (Attach)
+
+You can also use the VS Code extension to attach to the remote debugger server. Add a configuration of type `"soroban"` and `"request": "attach"` to your `.vscode/launch.json`.
+
+Below is a complete snippet matching the TLS client setup above:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Soroban: Attach to Remote Debugger",
+      "type": "soroban",
+      "request": "attach",
+      "host": "localhost",
+      "port": 9229,
+      "contractPath": "${workspaceFolder}/contract.wasm",
+      "entrypoint": "increment",
+      "args": ["user1", 100],
+      "token": "your-token-here",
+      "tlsCert": "${workspaceFolder}/path/to/client-cert.pem",
+      "tlsKey": "${workspaceFolder}/path/to/client-key.pem"
+    }
+  ]
+}
+```
+
+#### Configuration Properties
+
+- **host**: The hostname or IP address of the remote debug server (defaults to `127.0.0.1`).
+- **port**: The TCP port the server is listening on.
+- **contractPath**: Path to the contract WASM compiled locally.
+- **entrypoint**: The function name to execute.
+- **args**: JSON array of arguments for the entrypoint.
+- **token**: The authentication token required by the server.
+- **tlsCert**: Optional path to your client TLS certificate file.
+- **tlsKey**: Optional path to your client TLS private key file.
+
 ### Timeouts and Retries (network instability)
 
 Remote sessions often run across CI, containers, or flaky links. The remote client supports deterministic timeouts and controlled retries for **idempotent** operations.
