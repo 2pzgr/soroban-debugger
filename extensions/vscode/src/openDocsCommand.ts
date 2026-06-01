@@ -19,6 +19,11 @@ const DOC_ITEMS: DocItem[] = [
         file: 'architecture.md'
     },
     {
+        label: 'VS Code Extension Architecture',
+        description: 'Internal design of the DAP adapter',
+        file: 'architecture-vscode.md'
+    },
+    {
         label: 'Protocol Specification',
         description: 'Wire protocol for remote debugging',
         file: 'protocol.md'

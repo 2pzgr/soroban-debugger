@@ -57,7 +57,7 @@ Roadmap view: [Section B priorities](roadmap-priorities.md#section-b--architectu
 
 - **I-013** `[DOC]` `ARCHITECTURE.md` describes `Stepper` as "(Planned)" with no follow-up issue or tracking link; its current implementation status is unknown.
 - **I-014** `[DOC]` `ARCHITECTURE.md` "Extension Points" section lists four items but omits the plugin system, remote server, and batch executor — all of which now exist.
-- **I-015** `[DOC]` No architecture-level doc covers the VS Code extension / DAP adapter; `ARCHITECTURE.md` only covers the Rust CLI.
+- ~**I-015** `[DOC]` No architecture-level doc covers the VS Code extension / DAP adapter; `ARCHITECTURE.md` only covers the Rust CLI.~
 - **I-016** `[DOC]` No design document explains the decision to use `soroban-env-host` directly rather than higher-level Soroban SDK abstractions.
 - **I-017** `[DOC]` The plugin ABI stability contract (what breaks a plugin across debugger versions) is described only in `docs/plugin-api.md`; a shorter summary should appear in `ARCHITECTURE.md`.
 - **I-018** `[DOC]` The batch execution design (rayon parallelism, result aggregation) is documented only in `BATCH_EXECUTION_SUMMARY.md` — an implementation summary rather than a design doc; a canonical design reference in `docs/` is missing.

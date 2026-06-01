@@ -95,16 +95,18 @@ Below is a complete snippet matching the TLS client setup above:
 
 Remote sessions often run across CI, containers, or flaky links. The remote client supports deterministic timeouts and controlled retries for **idempotent** operations.
 
+- `--timeout-ms` sets the baseline request timeout for regular remote operations.
+- `--inspect-timeout-ms` and `--storage-timeout-ms` let you raise slower read-only calls without changing every request.
 - Retries apply to: `Ping`, `Inspect`, `GetStorage` (and other read-only state queries).
 - No-retry semantics apply to: execution/stepping commands (e.g. `Execute`, `Continue`, `StepIn/Next/StepOut`) to avoid unintended side effects.
 
-Example (tighter ping timeout, more retries):
+Example (lower the default request timeout and add retries):
 
 ```bash
 soroban-debug remote \
   --remote host:9229 \
   --token "$TOKEN" \
-  --ping-timeout-ms 1000 \
+  --timeout-ms 1000 \
   --retry-attempts 5 \
   --retry-base-delay-ms 100 \
   --retry-max-delay-ms 1500
