@@ -15,6 +15,7 @@ The Soroban Debugger plugin system allows developers to extend the debugger's fu
 9. [Best Practices](#best-practices)
 10. [Examples](#examples)
 11. [Command Namespace Rules](#command-namespace-rules)
+12. [Failure Handling and Circuit Breaker](plugin-failure-handling.md)
 
 ## Overview
 
@@ -464,6 +465,8 @@ Policy behavior:
 
 In `enforce` mode, a plugin must either be explicitly allowlisted or provide a valid Ed25519 signature from an allowed signer.
 
+For details on what happens when a plugin that passes trust checks later panics or times out at runtime — including how in-flight events are handled and how the session-level circuit breaker works — see [Plugin Failure Handling](plugin-failure-handling.md).
+
 ## Installation and Loading
 
 ### Manual Installation
@@ -756,6 +759,7 @@ For the complete policy, including formatter name resolution and example warning
 ## Additional Resources
 
 - [Plugin Command Namespace Policy](plugin-command-namespaces.md)
+- [Plugin Failure Handling and Circuit Breaker](plugin-failure-handling.md)
 - [Example Logger Plugin](../examples/plugins/example_logger/)
 - [Plugin API Reference](https://docs.rs/soroban-debugger/latest/soroban_debugger/plugin/)
 - [GitHub Issues](https://github.com/Timi16/soroban-debugger/issues)
