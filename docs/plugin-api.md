@@ -14,6 +14,7 @@ The Soroban Debugger plugin system allows developers to extend the debugger's fu
 8. [Hot-Reload Support](#hot-reload-support)
 9. [Best Practices](#best-practices)
 10. [Examples](#examples)
+11. [Command Namespace Rules](#command-namespace-rules)
 
 ## Overview
 
@@ -282,6 +283,8 @@ fn execute_command(&mut self, command: &str, args: &[String]) -> PluginResult<St
     }
 }
 ```
+
+> **Name collisions between plugins**: When two plugins register a command with the same name, the debugger resolves the conflict deterministically. Core commands always take precedence, then plugins are ordered by manifest name. See [Plugin Command Namespace Policy](plugin-command-namespaces.md) for the full precedence rules, normalization behavior, and the recommended `plugin_name:command_name` style.
 
 ### Hot-Reload Support
 
@@ -733,8 +736,26 @@ For details on manifest file versioning, see Plugin Manifest Versioning.
 - Verify `on_event` is implemented correctly
 - Check that the event type you're expecting is actually fired
 
+## Command Namespace Rules
+
+When multiple plugins provide commands, name collisions are resolved deterministically:
+
+1. **Core commands always win** — no plugin can shadow a built-in command.
+2. **Plugins are ordered by manifest name** (alphabetically). The first plugin in that order wins for execution; all others are recorded as conflicts.
+3. **Names are normalized** — whitespace is trimmed and names are lowercased before comparison.
+4. **Conflict warnings** are emitted once at plugin load time, not on every invocation. You can inspect active conflicts via `command_conflicts()` and `formatter_conflicts()` on the registry.
+
+To avoid collisions entirely, use a namespaced style:
+
+```text
+plugin_name:command_name
+```
+
+For the complete policy, including formatter name resolution and example warning output, see [Plugin Command Namespace Policy](plugin-command-namespaces.md).
+
 ## Additional Resources
 
+- [Plugin Command Namespace Policy](plugin-command-namespaces.md)
 - [Example Logger Plugin](../examples/plugins/example_logger/)
 - [Plugin API Reference](https://docs.rs/soroban-debugger/latest/soroban_debugger/plugin/)
 - [GitHub Issues](https://github.com/Timi16/soroban-debugger/issues)

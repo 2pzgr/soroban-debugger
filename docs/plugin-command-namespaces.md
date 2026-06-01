@@ -1,5 +1,7 @@
 # Plugin Command Namespace Policy
 
+> This page is part of the plugin system reference. For the full plugin API, see [Plugin System API Documentation](plugin-api.md#command-namespace-rules).
+
 ## Problem
 
 Plugins can provide custom CLI commands and output formatters, but name collisions between plugins make behavior unpredictable.
