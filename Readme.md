@@ -419,7 +419,7 @@ show_events = true
 
 | Symptom | Likely Cause | Solution |
 | --- | --- | --- |
-| Request timed out | Slow host or low timeout | Increase `--timeout-ms` |
+| Request timed out | Slow host or low timeout | Increase `--timeout-ms`, or use `--inspect-timeout-ms` / `--storage-timeout-ms` for slower read-only requests. For flaky links, consider the `--retry-*` flags. |
 | Incompatible protocol | Build version mismatch | Reinstall client/server from same release |
 | Auth failed | Token mismatch | Verify `--token` values match |
 

@@ -466,6 +466,8 @@ The extension consists of three main components:
 - Debugger state management
 - Variable reference handling
 
+For a deeper dive into the extension architecture, see the VS Code Extension Architecture document.
+
 ## Troubleshooting
 
 ### Protocol, timeout, and auth issues

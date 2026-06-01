@@ -50,6 +50,9 @@ May also be specified with the \fBSOROBAN_DEBUG_CONNECT_TIMEOUT_MS\fR environmen
 \fB\-\-timeout\-ms\fR \fI<MS>\fR [default: 30000]
 Per\-request timeout in milliseconds for regular operations (execute, storage, inspect).
 
+Use \-\-inspect\-timeout\-ms and \-\-storage\-timeout\-ms when you need a higher timeout for
+only one read\-only request class.
+
 Default: 30 000 ms (30 seconds).
 .RS
 May also be specified with the \fBSOROBAN_DEBUG_REQUEST_TIMEOUT_MS\fR environment variable. 
