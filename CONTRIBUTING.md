@@ -140,7 +140,7 @@ cargo test --test <test_file>
 Reproduce the benchmark regression gate locally without checking out `main` in place:
 
 ```bash
-cargo install critcmp --version 0.1.7
+cargo install --locked critcmp --version 0.1.7
 bash scripts/check_benchmark_regressions.sh
 ```
 
@@ -162,7 +162,7 @@ Fuzzing helps discover crashes and panics in critical code paths like WASM parsi
 **Prerequisites:**
 Install `cargo-fuzz`:
 ```bash
-cargo install cargo-fuzz
+cargo install --locked cargo-fuzz
 ```
 
 **Running a fuzz target:**

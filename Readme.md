@@ -28,14 +28,16 @@ A command-line debugger for Soroban smart contracts on the Stellar network. Debu
 
 #### Using Cargo (Recommended)
 ```bash
-cargo install soroban-debugger
+cargo install --locked soroban-debugger
 ```
+
+> The `--locked` flag pins dependency versions to those tested by the maintainers, ensuring a reproducible install.
 
 #### From Source
 ```bash
 git clone https://github.com/Timi16/soroban-debugger.git
 cd soroban-debugger
-cargo install --path .
+cargo install --locked --path .
 ```
 
 ### 2. Your First Debug Run
